@@ -17,7 +17,7 @@ Regex runs before NLP. Authentication is a service-to-service API key
 
 **Stack:** Python 3.12 · FastAPI · Presidio · spaCy · Fly.io
 **License:** MIT
-**Deployment:** Configure via fly.toml (not committed)
+**Status:** discontinued reference implementation (replaced by the pw-os PII guard); nothing deploys it, and CI runs only on manual dispatch.
 
 ## Key Files
 
@@ -31,7 +31,7 @@ Regex runs before NLP. Authentication is a service-to-service API key
 | `src/pw_redact/redactor/allow_list.py` | Layer 4: financial data preservation |
 | `src/pw_redact/security/` | Input validation, injection detection, output validation, rate limiting |
 | `src/pw_redact/rehydrator/engine.py` | Manifest-based placeholder restoration |
-| `tests/` | 332 tests across 9 test files (97% coverage) |
+| `tests/` | Test suite (CI coverage floor 85%) |
 
 ## Commands
 
@@ -43,13 +43,10 @@ pip install -e ".[dev]" && python -m spacy download en_core_web_lg
 pytest tests/ -v
 
 # Lint
-ruff check src/
+ruff check src/ && ruff format --check src/
 
 # Run locally
 uvicorn pw_redact.main:app --port 8080
-
-# Deploy
-fly deploy -a pw-redact --remote-only
 ```
 
 ## Boundaries
@@ -85,12 +82,12 @@ values. Actual `fly.toml` and `.env` are gitignored.
 4. **Financial data must survive.** Verify allow-list doesn't conflict when adding patterns.
 5. **Security matters.** This sits at the chokepoint of an AI pipeline processing SEC-regulated data. Use `hmac.compare_digest()` for secrets, validate all external input, use possessive quantifiers in regex to prevent ReDoS.
 6. **This is a public repo.** No internal URLs, no vendor-specific references, no PW business logic.
-7. **Run tests before committing.** All 332 tests must pass. Lint + format must pass. Coverage must stay above 85%.
+7. **Run tests before committing.** All tests must pass. Lint + format must pass. Coverage must stay above 85%.
 
 ## Deploy and CI
 
 - Template: `fly.toml.example`. Copy to `fly.toml` locally; do not commit it.
-- CI: `.github/workflows/ci.yml` runs `ruff check src/` and `pytest tests/` with `--cov-fail-under=85`.
+- CI: `.github/workflows/ci.yml` runs only on manual dispatch: `ruff check src/`, `ruff format --check src/`, and `pytest tests/` with `--cov=pw_redact --cov-fail-under=85`.
 
 ## Architecture
 
