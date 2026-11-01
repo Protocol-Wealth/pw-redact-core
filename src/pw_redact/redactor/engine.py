@@ -14,6 +14,7 @@ from .allow_list import compile_allow_patterns, get_allow_terms
 from .manifest import PlaceholderEntry, RedactionManifest
 from .presidio_config import create_analyzer
 from .regex_patterns import DetectedEntity, detect_regex
+from .unicode_canon import canonicalize, to_original_span
 
 # Map Presidio entity type names to canonical names
 _TYPE_MAP: dict[str, str] = {
@@ -127,41 +128,19 @@ class PWRedactor:
         Returns:
             RedactionResult with sanitized_text and manifest.
         """
-        # Normalize Unicode to NFC to prevent bypass via decomposed forms
-        # (e.g. NFD "e" + combining acute vs NFC "é", soft hyphens in SSNs)
+        # NFC composes decomposed forms (NFD "e" + combining acute -> "é").
+        # It does NOT remove soft hyphens or zero-width characters, nor map
+        # look-alike dashes and spaces; detection handles those on a
+        # canonical copy (see _find_entities). Offsets below are in this
+        # NFC text, which is also the text the sanitized output is built from.
         text = unicodedata.normalize("NFC", text)
 
         # Per-request state for placeholder consistency
         placeholder_map: dict[str, str] = {}
         type_counters: dict[str, int] = {}
 
-        # Step 1: Regex detection (Layer 1)
-        regex_entities = detect_regex(text)
-
-        # Step 2: Presidio NLP detection (Layers 2 + 3)
-        entities_to_detect = _CONTEXT_ENTITIES.get(context, _CONTEXT_ENTITIES["general"])
-        presidio_results = self._analyzer.analyze(
-            text=text,
-            entities=entities_to_detect,
-            language="en",
-            allow_list=self._allow_terms,
-        )
-        nlp_entities = [
-            DetectedEntity(
-                entity_type=_TYPE_MAP.get(r.entity_type, r.entity_type),
-                start=r.start,
-                end=r.end,
-                score=r.score,
-                text=text[r.start : r.end],
-            )
-            for r in presidio_results
-        ]
-
-        # Step 3: Merge and deduplicate (regex preferred on ties)
-        merged = _merge_entities(regex_entities, nlp_entities)
-
-        # Step 4: Apply allow-list filter (Layer 4)
-        filtered = [e for e in merged if not any(p.fullmatch(e.text) for p in self._allow_patterns)]
+        # Steps 1-4: regex, Presidio, merge, allow-list
+        filtered = self._find_entities(text, context)
 
         # Step 5: Generate placeholders and build manifest entries
         filtered.sort(key=lambda e: e.start)
@@ -203,10 +182,29 @@ class PWRedactor:
     def detect(self, text: str, context: str = "general") -> list[DetectedEntity]:
         """Detect PII locations without redacting. For UI highlighting."""
         text = unicodedata.normalize("NFC", text)
-        regex_entities = detect_regex(text)
+        return self._find_entities(text, context)
+
+    def _find_entities(self, text: str, context: str) -> list[DetectedEntity]:
+        """Run Layers 1-4 on a canonical copy of ``text``; return spans of ``text``.
+
+        Detection runs on ``canonicalize(text)``: look-alike dashes become
+        "-", look-alike spaces become " ", and invisible characters (zero-width,
+        soft hyphen, bidi controls) are dropped, so an SSN written with U+2011
+        non-breaking hyphens, or with a zero-width space inside it, matches the
+        SSN pattern. Every returned span and ``text`` value is mapped back to
+        ``text`` itself, so the manifest keeps the caller's exact original for
+        rehydration and replacement covers the whole value, hidden characters
+        included.
+        """
+        canon, index_map = canonicalize(text)
+
+        # Layer 1: deterministic regex
+        regex_entities = detect_regex(canon)
+
+        # Layers 2 + 3: Presidio NLP and custom recognizers
         entities_to_detect = _CONTEXT_ENTITIES.get(context, _CONTEXT_ENTITIES["general"])
         presidio_results = self._analyzer.analyze(
-            text=text,
+            text=canon,
             entities=entities_to_detect,
             language="en",
             allow_list=self._allow_terms,
@@ -217,12 +215,30 @@ class PWRedactor:
                 start=r.start,
                 end=r.end,
                 score=r.score,
-                text=text[r.start : r.end],
+                text=canon[r.start : r.end],
             )
             for r in presidio_results
         ]
+
+        # Merge and deduplicate (regex preferred on ties)
         merged = _merge_entities(regex_entities, nlp_entities)
-        return [e for e in merged if not any(p.fullmatch(e.text) for p in self._allow_patterns)]
+
+        # Layer 4: allow-list, judged on the canonical text the patterns expect
+        kept = [e for e in merged if not any(p.fullmatch(e.text) for p in self._allow_patterns)]
+
+        mapped: list[DetectedEntity] = []
+        for e in kept:
+            start, end = to_original_span(index_map, e.start, e.end)
+            mapped.append(
+                DetectedEntity(
+                    entity_type=e.entity_type,
+                    start=start,
+                    end=end,
+                    score=e.score,
+                    text=text[start:end],
+                )
+            )
+        return mapped
 
 
 def _merge_entities(
