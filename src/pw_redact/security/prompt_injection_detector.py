@@ -36,26 +36,50 @@ def _p(pattern: str, label: str, weight: float, flags: int = re.IGNORECASE) -> N
 
 
 # -- Instruction override attempts ------------------------------------------
-_p(
-    r"ignore\s+(?:all\s+)?(?:previous|prior|above|earlier)\s+instructions?",
-    "ignore_previous_instructions",
-    0.95,
+# Real phrasings put filler words between the verb and the target ("ignore all
+# the previous instructions", "disregard any of your prior rules"). Up to four
+# filler words are allowed, but at least one must point at earlier or
+# model-side instructions (a qualifier like "previous", or "your"/"all"), so
+# "ignore the instructions on the form" is not flagged.
+_OVERRIDE_VERB = (
+    r"(?:ignore|disregard|forget|drop|dismiss|discard|abandon|overlook|skip|set\s+aside)"
 )
+_FILLER = r"(?:all|any|each|every|the|these|those|of|my|our|its|this|that|above|below)"
+_QUALIFIER = (
+    r"(?:previous|previously|prior|above|earlier|preceding|foregoing|former|original|"
+    r"initial|system|developer|safety|your|all)"
+)
+_TARGET = (
+    r"(?:instructions?|rules?|guidelines?|directions?|directives?|prompts?|commands?|"
+    r"context|constraints?|guardrails?)"
+)
+_WORDS = rf"(?:(?:{_FILLER}|{_QUALIFIER})\s+){{0,3}}"
+_OVERRIDE_PHRASE = rf"{_WORDS}{_QUALIFIER}\s+{_WORDS}{_TARGET}\b(?!\s+of\s+thumb)"
+
+_p(rf"\bignore\s+{_OVERRIDE_PHRASE}", "ignore_previous_instructions", 0.95)
 _p(r"ignore\s+your\s+instructions?", "ignore_your_instructions", 0.95)
+_p(rf"\bdisregard\s+{_OVERRIDE_PHRASE}", "disregard_instructions", 0.90)
 _p(
-    r"disregard\s+(?:all\s+)?(?:previous|prior|above|your)\s+(?:instructions?|rules?|guidelines?)",
-    "disregard_instructions",
-    0.90,
-)
-_p(
-    r"(?:forget|drop|dismiss)\s+(?:all\s+)?(?:previous|prior|your)\s+(?:instructions?|context|rules?)",
+    rf"\b(?!ignore|disregard){_OVERRIDE_VERB}\s+{_OVERRIDE_PHRASE}",
     "forget_instructions",
     0.90,
 )
 _p(
-    r"do\s+not\s+follow\s+(?:any\s+)?(?:previous|prior|your)\s+(?:instructions?|rules?)",
+    rf"\b(?:do\s+not|don'?t|never|stop)\s+(?:follow|obey|listen\s+to)(?:ing)?\s+{_OVERRIDE_PHRASE}",
     "do_not_follow",
     0.90,
+)
+_p(
+    rf"\b{_OVERRIDE_VERB}\s+(?:everything|anything|all)\s+"
+    r"(?:(?:that\s+)?(?:was\s+|you\s+were\s+)?(?:said|told|written|stated)\s+)?"
+    r"(?:above|before|previously|earlier|so\s+far)\b",
+    "ignore_everything_above",
+    0.90,
+)
+_p(
+    r"\byou\s+(?:are|'re)\s+no\s+longer\s+(?:bound|restricted|limited)\s+by\b",
+    "no_longer_bound",
+    0.85,
 )
 
 # -- Identity manipulation -------------------------------------------------

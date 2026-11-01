@@ -10,7 +10,7 @@ import unicodedata
 import uuid
 from dataclasses import dataclass
 
-from .allow_list import compile_allow_patterns, get_allow_terms
+from .allow_list import compile_allow_patterns, get_allow_terms, is_roth_account
 from .manifest import PlaceholderEntry, RedactionManifest
 from .presidio_config import create_analyzer
 from .regex_patterns import DetectedEntity, detect_regex
@@ -184,6 +184,9 @@ class PWRedactor:
         text = unicodedata.normalize("NFC", text)
         return self._find_entities(text, context)
 
+    def _is_allowed(self, value: str) -> bool:
+        return any(p.fullmatch(value) for p in self._allow_patterns)
+
     def _find_entities(self, text: str, context: str) -> list[DetectedEntity]:
         """Run Layers 1-4 on a canonical copy of ``text``; return spans of ``text``.
 
@@ -220,11 +223,19 @@ class PWRedactor:
             for r in presidio_results
         ]
 
-        # Merge and deduplicate (regex preferred on ties)
-        merged = _merge_entities(regex_entities, nlp_entities)
+        # Layer 4: allow-list, judged per detection on the canonical text the
+        # patterns expect. It runs before the merge so that an allow-listed
+        # detection (a dollar amount, a form number) can neither absorb nor
+        # suppress a real PII detection that overlaps it.
+        regex_entities = [e for e in regex_entities if not self._is_allowed(e.text)]
+        nlp_entities = [
+            e
+            for e in nlp_entities
+            if not self._is_allowed(e.text) and not is_roth_account(canon, e.start, e.end)
+        ]
 
-        # Layer 4: allow-list, judged on the canonical text the patterns expect
-        kept = [e for e in merged if not any(p.fullmatch(e.text) for p in self._allow_patterns)]
+        # Merge overlapping detections into their union (regex preferred on ties)
+        kept = _merge_entities(regex_entities, nlp_entities, canon)
 
         mapped: list[DetectedEntity] = []
         for e in kept:
@@ -244,11 +255,15 @@ class PWRedactor:
 def _merge_entities(
     regex_entities: list[DetectedEntity],
     nlp_entities: list[DetectedEntity],
+    text: str,
 ) -> list[DetectedEntity]:
-    """Merge regex and NLP entities, deduplicating overlaps.
+    """Merge regex and NLP entities into non-overlapping spans.
 
-    When two detections overlap, the higher-scoring one wins.
-    Regex wins ties (lower source priority value).
+    Overlapping detections become one entity covering their union, so no
+    character any detector flagged is left in clear. The higher-scoring
+    detection names the entity type; on equal scores the longer span wins,
+    then regex. Adjacent detections (one ends where the next starts) stay
+    separate: together they already cover every flagged character.
     """
     # Tag with source: 0 = regex (preferred), 1 = NLP
     tagged: list[tuple[DetectedEntity, int]] = []
@@ -260,19 +275,26 @@ def _merge_entities(
     # Sort by start position, then score descending, then source (regex first)
     tagged.sort(key=lambda t: (t[0].start, -t[0].score, t[1]))
 
-    merged: list[DetectedEntity] = []
+    # Each group: (union start, union end, winning detection)
+    groups: list[tuple[int, int, DetectedEntity]] = []
     for entity, _source in tagged:
-        if merged and entity.start < merged[-1].end:
-            # Overlapping — keep the better detection
-            prev = merged[-1]
-            if entity.score > prev.score:
-                merged[-1] = entity
-            elif entity.score == prev.score and (entity.end - entity.start) > (
-                prev.end - prev.start
+        if groups and entity.start < groups[-1][1]:
+            start, end, best = groups[-1]
+            if entity.score > best.score or (
+                entity.score == best.score and (entity.end - entity.start) > (best.end - best.start)
             ):
-                # Same score, prefer longer span
-                merged[-1] = entity
+                best = entity
+            groups[-1] = (start, max(end, entity.end), best)
         else:
-            merged.append(entity)
+            groups.append((entity.start, entity.end, entity))
 
-    return merged
+    return [
+        DetectedEntity(
+            entity_type=best.entity_type,
+            start=start,
+            end=end,
+            score=best.score,
+            text=text[start:end],
+        )
+        for start, end, best in groups
+    ]

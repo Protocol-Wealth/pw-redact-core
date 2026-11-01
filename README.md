@@ -244,9 +244,13 @@ Restore original values from placeholders using the manifest.
 }
 ```
 
+A malformed manifest (placeholders not a list, a placeholder not in `<TYPE_N>`
+format, a non-string value, an original over 1,000 characters) is answered with
+422 and `{"detail": "Invalid manifest: ..."}`.
+
 ### POST /v1/detect
 
-Detect PII locations without redacting. Returns entity positions, types, and confidence scores. Useful for UI highlighting.
+Detect PII locations without redacting. Returns entity positions, types, and confidence scores. Useful for UI highlighting. Input validation is the same as for `/v1/redact`: oversized input is refused with 413, and detection runs on the sanitized text, so offsets match the `/v1/redact` manifest. When `security.input_sanitized` is true, offsets refer to that sanitized text.
 
 **Request:**
 ```json
@@ -262,7 +266,15 @@ Detect PII locations without redacting. Returns entity positions, types, and con
   "entities": [
     {"entity_type": "PERSON", "text": "John Smith", "start": 0, "end": 10, "score": 0.85},
     {"entity_type": "US_SSN", "text": "123-45-6789", "start": 20, "end": 31, "score": 0.90}
-  ]
+  ],
+  "security": {
+    "input_sanitized": false,
+    "sanitization_actions": [],
+    "injection_detected": false,
+    "injection_score": 0.0,
+    "injection_patterns": [],
+    "request_id": "req_a1b2c3d4e5f6"
+  }
 }
 ```
 
@@ -364,15 +376,16 @@ For vulnerability reports, see [SECURITY.md](SECURITY.md).
 - 25 patterns across 7 categories: instruction override, identity manipulation, prompt extraction, injection keywords, encoded variants (leetspeak, spaced characters), role-play/persona, delimiter manipulation
 - Returns a confidence score (0.0-1.0) and list of matched patterns
 - **Advisory only** — flags suspicious input but does NOT block it. Advisors may legitimately paste client emails containing unusual text. The caller decides policy.
-- Injection data included in the `/v1/redact` response `security` key
+- Injection data included in the `/v1/redact` and `/v1/detect` response `security` key
 
 ### Output Validation
 - Verifies no original PII values leaked into `sanitized_text`
 - Validates all placeholders match the `<TYPE_N>` format
 - Checks manifest structural integrity
+- **Fails closed** — on a leak, a malformed manifest, or an error in the check itself, `/v1/redact` answers 500 and returns neither `sanitized_text` nor `manifest`. A placeholder-format warning alone stays advisory (caller text can contain `<...>`).
 
 ### Rate Limiting
-- In-memory token bucket per API key
+- In-memory token bucket per API key, shared by every authenticated route (`/v1/redact`, `/v1/detect`, `/v1/rehydrate`)
 - Default: 60 requests/minute, 10 requests/second burst
 - Returns 429 with `Retry-After` header when exceeded
 - Configurable via `RATE_LIMIT_RPM` and `RATE_LIMIT_BURST` env vars

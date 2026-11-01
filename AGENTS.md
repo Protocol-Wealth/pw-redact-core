@@ -94,8 +94,8 @@ values. Actual `fly.toml` and `.env` are gitignored.
 ```
 Request → Rate Limiter → Content-Length Guard → Input Validator
   → Injection Detector → Unicode Normalization
-  → Layer 1 (Regex) + Layer 2 (Presidio NLP) → Merge/Dedup
-  → Layer 3 (Financial Recognizers) → Layer 4 (Allow-List)
+  → Layer 1 (Regex) + Layer 2 (Presidio NLP, incl. Layer 3 Financial Recognizers)
+  → Layer 4 (Allow-List, per detection) → Merge (union of overlaps)
   → Placeholder Generation → Output Validator → Response
 ```
 

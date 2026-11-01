@@ -31,6 +31,11 @@ class _PatternDef:
     group: int = 0  # 0 = full match, 1+ = capture group index
 
 
+# Keyword-triggered identifier patterns (LOAN_NUMBER, PARCEL_NUMBER, MLS_NUMBER,
+# FILE_REFERENCE) require the keyword to start a word and the captured value to
+# contain a digit (the "(?=...\d)" lookahead). Without that, the next ordinary
+# word was redacted: "loan application", "title insurance", "listing agreement".
+
 # Patterns ordered by specificity (highest first).
 # When two patterns match the same span, the higher-score one wins.
 PATTERN_DEFS: dict[str, _PatternDef] = {
@@ -156,8 +161,8 @@ PATTERN_DEFS: dict[str, _PatternDef] = {
     ),
     "LOAN_NUMBER": _PatternDef(
         regex=(
-            r"(?i)(?:loan|mortgage|note)\s*(?:(?:#|no\.?|number|id)\s*)?"
-            r"(?:[#:=]\s*)?([A-Z0-9][-A-Z0-9]{7,19})\b"
+            r"(?i)\b(?:loan|mortgage|note)\s*(?:(?:#|no\.?|number|id)\s*)?"
+            r"(?:[#:=]\s*)?((?=[-A-Z0-9]{0,19}\d)[A-Z0-9][-A-Z0-9]{7,19})\b"
         ),
         score=0.80,
         group=1,
@@ -177,26 +182,26 @@ PATTERN_DEFS: dict[str, _PatternDef] = {
     ),
     "PARCEL_NUMBER": _PatternDef(
         regex=(
-            r"(?i)(?:APN|parcel|tax\s*+(?:parcel|id|lot)|property\s*+(?:index|id|PIN)"
+            r"(?i)\b(?:APN|parcel|tax\s*+(?:parcel|id|lot)|property\s*+(?:index|id|PIN)"
             r"|assessor)\s*+(?:(?:#|no\.?|number)\s*+)?(?:[#:=]\s*+)?"
-            r"([A-Z0-9][-A-Z0-9./]{4,24}+)\b"
+            r"((?=[-A-Z0-9./]{0,24}\d)[A-Z0-9][-A-Z0-9./]{4,24}+)\b"
         ),
         score=0.80,
         group=1,
     ),
     "MLS_NUMBER": _PatternDef(
         regex=(
-            r"(?i)(?:MLS|listing)\s*(?:(?:#|no\.?|number|id)\s*)?"
-            r"(?:[#:=]\s*)?([A-Z0-9]{6,15})\b"
+            r"(?i)\b(?:MLS|listing)\s*(?:(?:#|no\.?|number|id)\s*)?"
+            r"(?:[#:=]\s*)?((?=[A-Z0-9]{0,14}\d)[A-Z0-9]{6,15})\b"
         ),
         score=0.75,
         group=1,
     ),
     "FILE_REFERENCE": _PatternDef(
         regex=(
-            r"(?i)(?:escrow|title|closing|instrument|recording|document)"
+            r"(?i)\b(?:escrow|title|closing|instrument|recording|document)"
             r"\s*(?:(?:#|no\.?|number)\s*)?(?:[#:=]\s*)?"
-            r"([A-Z0-9][-A-Z0-9]{5,19})\b"
+            r"((?=[-A-Z0-9]{0,19}\d)[A-Z0-9][-A-Z0-9]{5,19})\b"
         ),
         score=0.75,
         group=1,

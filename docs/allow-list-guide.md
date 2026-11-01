@@ -92,7 +92,9 @@ Investment: AGI, MAGI, QBI, RMD, QCD, NUA, IRA, SEP, SIMPLE, 401k, 403b, 457b, 5
 
 Mortgage/RE: LTV, DTI, PMI, PITI, MIP, UFMIP, ARM, FRM, HELOC, HEL, TILA, RESPA, ECOA, HMDA, TRID, URLA, QM, ATR, DU, LP, AUS, GFE, LE, CD, HUD, ALTA, CLTA, CPL, FNMA, FHLMC, GNMA, VOE, VOD, VOM, VOR
 
-General: Roth, FICO, CUSIP, ISIN, ETF, NAV, AUM, EBITDA, P/E, EPS, ROI, ROE, CROIC, FHA, HUD, HOA, APR, MERS, MLS, Fannie Mae, Freddie Mac, Ginnie Mae
+General: FICO, CUSIP, ISIN, ETF, NAV, AUM, EBITDA, P/E, EPS, ROI, ROE, CROIC, FHA, HUD, HOA, APR, MERS, MLS, Fannie Mae, Freddie Mac, Ginnie Mae
+
+"Roth" is handled by context, not as a literal term, because it is also a surname: `is_roth_account()` keeps "Roth IRA", "Roth 401(k)", "a Roth conversion" and "backdoor Roth", while "Mr. Roth" is still redacted.
 
 ## Adding New Patterns
 

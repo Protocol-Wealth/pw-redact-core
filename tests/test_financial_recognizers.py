@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from pw_redact.redactor.financial_recognizers import get_financial_recognizers
 
 
@@ -75,3 +77,27 @@ class TestPolicyNumber:
         rec = _get_recognizer("POLICY_NUMBER")
         results = rec.analyze("value: ABC123DEF456", ["POLICY_NUMBER"])
         assert not any(r.entity_type == "POLICY_NUMBER" for r in results)
+
+
+class TestPolicyNumberNoOverRedaction:
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "The contract renewal is due.",
+            "Plan contributions increased.",
+            "The policy holders were notified.",
+            "We will plan accordingly.",
+        ],
+    )
+    def test_ordinary_words_not_detected(self, text):
+        rec = _get_recognizer("POLICY_NUMBER")
+        assert rec.analyze(text, ["POLICY_NUMBER"]) == []
+
+    def test_keyword_inside_word_not_detected(self):
+        rec = _get_recognizer("POLICY_NUMBER")
+        assert rec.analyze("airplane AB1234567", ["POLICY_NUMBER"]) == []
+
+    def test_contract_number_still_detected(self):
+        rec = _get_recognizer("POLICY_NUMBER")
+        results = rec.analyze("contract # VA2025000123", ["POLICY_NUMBER"])
+        assert any(r.entity_type == "POLICY_NUMBER" for r in results)

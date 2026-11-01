@@ -278,3 +278,126 @@ class TestSampleTranscript:
         assert "529" in result.sanitized_text
         assert "6.75%" in result.sanitized_text
         assert "2032" in result.sanitized_text
+
+
+# ── Overlapping detections are merged into their union ─────────────
+
+
+class TestOverlapMerge:
+    @staticmethod
+    def _e(entity_type: str, start: int, end: int, score: float, text: str):
+        from pw_redact.redactor.regex_patterns import DetectedEntity
+
+        return DetectedEntity(entity_type, start, end, score, text[start:end])
+
+    def test_higher_score_inside_keeps_lower_score_tail(self):
+        from pw_redact.redactor.engine import _merge_entities
+
+        text = "abcdefghijklmnopqrstuvwxyz"
+        merged = _merge_entities(
+            [self._e("A", 0, 10, 0.9, text)], [self._e("B", 5, 20, 0.5, text)], text
+        )
+        assert [(m.entity_type, m.start, m.end) for m in merged] == [("A", 0, 20)]
+        assert merged[0].text == text[0:20]
+
+    def test_higher_score_later_keeps_lower_score_head(self):
+        from pw_redact.redactor.engine import _merge_entities
+
+        text = "abcdefghijklmnopqrstuvwxyz"
+        merged = _merge_entities(
+            [self._e("A", 0, 10, 0.5, text)], [self._e("B", 5, 20, 0.9, text)], text
+        )
+        assert [(m.entity_type, m.start, m.end) for m in merged] == [("B", 0, 20)]
+
+    def test_chain_of_overlaps_is_one_span(self):
+        from pw_redact.redactor.engine import _merge_entities
+
+        text = "abcdefghijklmnopqrstuvwxyz"
+        merged = _merge_entities(
+            [self._e("A", 0, 6, 0.8, text), self._e("C", 10, 16, 0.6, text)],
+            [self._e("B", 4, 12, 0.7, text)],
+            text,
+        )
+        assert [(m.entity_type, m.start, m.end) for m in merged] == [("A", 0, 16)]
+
+    def test_adjacent_detections_both_kept(self):
+        from pw_redact.redactor.engine import _merge_entities
+
+        text = "abcdefghijklmnopqrstuvwxyz"
+        merged = _merge_entities(
+            [self._e("A", 0, 5, 0.9, text)], [self._e("B", 5, 9, 0.5, text)], text
+        )
+        assert [(m.entity_type, m.start, m.end) for m in merged] == [("A", 0, 5), ("B", 5, 9)]
+
+    def test_regex_wins_ties(self):
+        from pw_redact.redactor.engine import _merge_entities
+
+        text = "abcdefghijklmnopqrstuvwxyz"
+        merged = _merge_entities(
+            [self._e("REGEX", 0, 8, 0.8, text)], [self._e("NLP", 0, 8, 0.8, text)], text
+        )
+        assert merged[0].entity_type == "REGEX"
+
+    def test_phone_extension_not_left_in_clear(self, redactor: PWRedactor):
+        # Regex finds "212) 555-0199" (0.8); Presidio finds "(212) 555-0199 ext 22"
+        # (lower score). Keeping only the regex span left "(" and "ext 22" in clear.
+        text = "Reach him on (212) 555-0199 ext 22."
+        result = redactor.redact(text)
+        assert result.sanitized_text == "Reach him on <US_PHONE_1>."
+        entry = result.manifest.placeholders[0]
+        assert entry.original == "(212) 555-0199 ext 22"
+        assert PWRehydrator.rehydrate(result.sanitized_text, result.manifest.to_dict()) == text
+
+    def test_allow_listed_detection_does_not_suppress_overlapping_pii(
+        self, redactor: PWRedactor, monkeypatch
+    ):
+        """An allow-listed detection is dropped before merging, not after.
+
+        Otherwise a higher-scoring allow-listed span ("2025", a planning year)
+        would win the merge and then be dropped, taking the overlapping PII
+        ("2025 7781 ...") with it.
+        """
+        from presidio_analyzer import RecognizerResult
+
+        text = "Ref 2025 7781 3349 on file."
+        fake = [
+            RecognizerResult("DATE_TIME", 4, 8, 0.95),
+            RecognizerResult("ACCOUNT_REF", 4, 18, 0.6),
+        ]
+        monkeypatch.setattr(redactor._analyzer, "analyze", lambda **kw: fake)
+        result = redactor.redact(text)
+        assert result.sanitized_text == "Ref <ACCOUNT_REF_1> on file."
+
+
+# ── "Roth" the surname vs "Roth" the account ───────────────────────
+
+
+class TestRoth:
+    @pytest.mark.parametrize(
+        "text,name",
+        [
+            ("Mr. Roth called about his account.", "Roth"),
+            ("Dr. Roth reviewed the plan.", "Roth"),
+            ("Jane Roth called today.", "Jane Roth"),
+        ],
+    )
+    def test_surname_redacted(self, redactor: PWRedactor, text, name):
+        result = redactor.redact(text, context="meeting_transcript")
+        assert "Roth" not in result.sanitized_text
+        assert any(p.original == name for p in result.manifest.placeholders)
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Consider a Roth conversion into a Roth IRA.",
+            "She can also use the Roth 401(k) at work.",
+            "Explore backdoor Roth strategy.",
+        ],
+    )
+    def test_account_preserved(self, redactor: PWRedactor, text):
+        result = redactor.redact(text, context="meeting_transcript")
+        assert result.sanitized_text == text
+
+    def test_surname_and_account_in_one_sentence(self, redactor: PWRedactor):
+        result = redactor.redact("Mr. Roth opened a Roth IRA.", context="meeting_transcript")
+        assert result.sanitized_text == "Mr. <PERSON_1> opened a Roth IRA."

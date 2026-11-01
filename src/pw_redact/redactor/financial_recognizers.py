@@ -48,7 +48,9 @@ def get_financial_recognizers() -> list[PatternRecognizer]:
         patterns=[
             Pattern(
                 "policy",
-                r"(?i)(?:policy|plan|contract)[\s#:]*([A-Z0-9]{6,20})",
+                # The value must contain a digit, so "plan contributions" or
+                # "contract renewal" is not taken for a policy number.
+                r"(?i)\b(?:policy|plan|contract)[\s#:]*((?=[A-Z0-9]{0,19}\d)[A-Z0-9]{6,20})\b",
                 0.6,
             ),
         ],

@@ -205,8 +205,12 @@ class TestAllowTerms:
         terms = get_allow_terms()
         assert isinstance(terms, list)
         assert "AGI" in terms
-        assert "Roth" in terms
         assert "CUSIP" in terms
+
+    def test_roth_is_not_a_literal_term(self):
+        # A literal "Roth" made Presidio drop the surname in "Mr. Roth".
+        # The product sense is kept by is_roth_account() instead.
+        assert "Roth" not in get_allow_terms()
 
     def test_mortgage_terms_present(self):
         terms = get_allow_terms()
@@ -215,3 +219,43 @@ class TestAllowTerms:
         assert "FNMA" in terms
         assert "FHA" in terms
         assert "HOA" in terms
+
+
+# ── Roth: product vs surname ───────────────────────────────────────
+
+
+class TestIsRothAccount:
+    @staticmethod
+    def _check(text: str, word: str = "Roth") -> bool:
+        from pw_redact.redactor.allow_list import is_roth_account
+
+        start = text.index(word)
+        return is_roth_account(text, start, start + len(word))
+
+    def test_roth_ira(self):
+        assert self._check("Open a Roth IRA.")
+
+    def test_roth_401k(self):
+        assert self._check("Use the Roth 401(k).")
+
+    def test_roth_conversion(self):
+        assert self._check("Roth conversion of 50,000")
+
+    def test_backdoor_roth(self):
+        assert self._check("Explore backdoor Roth.")
+
+    def test_whole_span_roth_ira(self):
+        assert self._check("Fund the Roth IRA.", "Roth IRA")
+
+    def test_honorific_is_person(self):
+        assert not self._check("Mr. Roth called.")
+        assert not self._check("Mrs. Roth IRA questions")  # honorific wins
+
+    def test_bare_name_is_person(self):
+        assert not self._check("I spoke with Roth yesterday.")
+
+    def test_possessive_is_person(self):
+        assert not self._check("Roth's daughter called.")
+
+    def test_other_word_not_matched(self):
+        assert not self._check("Rothschild called.", "Rothschild")

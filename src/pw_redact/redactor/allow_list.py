@@ -51,7 +51,9 @@ ALLOW_TERMS: list[str] = [
     "SIMPLE",
     "HSA",
     "FSA",
-    "Roth",
+    # "Roth" is deliberately absent: it is also a surname ("Mr. Roth"), and a
+    # literal entry here made Presidio drop every lone "Roth" PERSON detection.
+    # is_roth_account() keeps the product sense instead, from its context.
     "FICO",
     "CUSIP",
     "ISIN",
@@ -106,6 +108,45 @@ ALLOW_TERMS: list[str] = [
     "Freddie Mac",
     "Ginnie Mae",
 ]
+
+
+# "Roth" as a retirement product: followed by an account type or a planning word,
+# or preceded by an article, possessive or "backdoor".
+_ROTH_WORD = re.compile(r"(?i)roth")
+_ROTH_PRODUCT_AFTER = re.compile(
+    r"(?i)\s*+(?:IRA|401\(?k\)?|403\(?b\)?|457\(?b\)?|TSP|conversions?|"
+    r"contributions?|accounts?|ladder|strategy|rollovers?|options?|elections?|"
+    r"deferrals?|assets|balances?|money|funds?|dollars|savings|recharacterization)\b"
+)
+_ROTH_PRODUCT_BEFORE = re.compile(
+    r"(?i)\b(?:a|an|the|backdoor|mega|my|your|his|her|their|our)\s++$"
+)
+# An honorific right before "Roth" means a person, whatever follows.
+_ROTH_PERSON_BEFORE = re.compile(r"\b(?:Mr|Mrs|Ms|Mx|Miss|Dr|Prof)\.?\s++$")
+
+
+def is_roth_account(text: str, start: int, end: int) -> bool:
+    """True if ``text[start:end]`` is "Roth" used as a retirement product.
+
+    "Roth IRA", "Roth 401(k)", "a Roth conversion" and "backdoor Roth" are the
+    product; "Mr. Roth" is a person and must stay detected. ("Jane Roth" never
+    reaches this check: the detection is the whole name, not "Roth".)
+    A span longer than the word itself (e.g. Presidio's "Roth IRA") is the
+    product if it is "Roth" plus a product word.
+    """
+    span = text[start:end]
+    head = _ROTH_WORD.match(span)
+    if head is None:
+        return False
+    rest = span[head.end() :]
+    if rest and not _ROTH_PRODUCT_AFTER.fullmatch(rest):
+        return False
+    before = text[max(0, start - 40) : start]
+    if _ROTH_PERSON_BEFORE.search(before):
+        return False
+    if rest:
+        return True
+    return bool(_ROTH_PRODUCT_AFTER.match(text, end) or _ROTH_PRODUCT_BEFORE.search(before))
 
 
 def compile_allow_patterns() -> list[re.Pattern[str]]:
