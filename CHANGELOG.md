@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased] - 2026-09-21
 
+### Security
+- Detection runs on a canonical copy of the text: look-alike dashes (U+2010-U+2015, U+2212, U+FE58, U+FE63, U+FF0D) become `-`, look-alike spaces (NBSP, narrow NBSP, U+2000-U+200A, U+205F, U+3000, U+1680) become a space, and invisible characters (zero-width, soft hyphen, bidi controls, BOM) are dropped. SSNs, card numbers and emails written with them were previously returned unredacted. Offsets, manifest originals and replacement stay on the caller's text, so rehydration restores it exactly. Applies to `redact`, `detect`, and both API routes.
+
 ### Changed
 - Repository agent instructions now live in `AGENTS.md`, and root `CLAUDE.md` was removed after its still-current facts moved.
 
