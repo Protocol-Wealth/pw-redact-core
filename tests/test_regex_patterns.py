@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from pw_redact.redactor.regex_patterns import detect_regex
 
 
@@ -657,3 +659,71 @@ class TestPlatformId:
         assert "PLATFORM_ID" not in _types(
             "org_id: ghijklmnopqrstuvwxyz1234"
         )
+
+
+# ── Keyword-triggered patterns do not take the next ordinary word ───
+
+
+class TestKeywordPatternsNoOverRedaction:
+    """Before the digit requirement, the next ordinary word after a keyword was
+    redacted ("loan application" -> LOAN_NUMBER "application")."""
+
+    @pytest.mark.parametrize(
+        "text,entity_type",
+        [
+            ("We discussed the mortgage refinancing options.", "LOAN_NUMBER"),
+            ("The loan application is pending.", "LOAN_NUMBER"),
+            ("The note: borrower requested forbearance.", "LOAN_NUMBER"),
+            ("Denote everything clearly.", "LOAN_NUMBER"),
+            ("Order title insurance before closing.", "FILE_REFERENCE"),
+            ("The closing disclosure arrived.", "FILE_REFERENCE"),
+            ("Please sign the document tomorrow.", "FILE_REFERENCE"),
+            ("Read the escrow instructions.", "FILE_REFERENCE"),
+            ("Recording requirements vary by county.", "FILE_REFERENCE"),
+            ("Review the listing agreement.", "MLS_NUMBER"),
+            ("Check the assessor valuation.", "PARCEL_NUMBER"),
+            ("The parcel boundaries changed.", "PARCEL_NUMBER"),
+        ],
+    )
+    def test_ordinary_word_not_detected(self, text, entity_type):
+        assert entity_type not in _types(text)
+
+    @pytest.mark.parametrize(
+        "text,entity_type,value",
+        [
+            ("Loan #ABC12345678", "LOAN_NUMBER", "ABC12345678"),
+            ("note #LN-2025-0042", "LOAN_NUMBER", "LN-2025-0042"),
+            ("title number: T2025-00789", "FILE_REFERENCE", "T2025-00789"),
+            ("escrow# NCS-123456-LA", "FILE_REFERENCE", "NCS-123456-LA"),
+            ("MLS# PM23456789", "MLS_NUMBER", "PM23456789"),
+            ("assessor# R1234567890", "PARCEL_NUMBER", "R1234567890"),
+        ],
+    )
+    def test_identifiers_with_digits_still_detected(self, text, entity_type, value):
+        assert _texts(text, entity_type) == [value]
+
+
+class TestKeywordStart:
+    """The keyword may follow "_", a digit or start a camelCase part, but not
+    sit inside a lowercase word."""
+
+    @pytest.mark.parametrize(
+        "text,entity_type,value",
+        [
+            ("client_loan: 12345678", "LOAN_NUMBER", "12345678"),
+            ("HomeLoan #12345678", "LOAN_NUMBER", "12345678"),
+            ("2ndMortgage 12345678", "LOAN_NUMBER", "12345678"),
+            ("2Mortgage 12345678", "LOAN_NUMBER", "12345678"),
+            ("HomeTitle 123456A", "FILE_REFERENCE", "123456A"),
+            ("new_listing: AR2025001", "MLS_NUMBER", "AR2025001"),
+            ("county_APN: 123-456-789", "PARCEL_NUMBER", "123-456-789"),
+        ],
+    )
+    def test_detected(self, text, entity_type, value):
+        assert _texts(text, entity_type) == [value]
+
+    @pytest.mark.parametrize(
+        "text", ["denote 12345678", "Denote 12345678", "LOANLOAN 12345678", "subtitle 1234567"]
+    )
+    def test_inside_word_not_detected(self, text):
+        assert not ({"LOAN_NUMBER", "FILE_REFERENCE"} & _types(text))

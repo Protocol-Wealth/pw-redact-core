@@ -92,7 +92,9 @@ Investment: AGI, MAGI, QBI, RMD, QCD, NUA, IRA, SEP, SIMPLE, 401k, 403b, 457b, 5
 
 Mortgage/RE: LTV, DTI, PMI, PITI, MIP, UFMIP, ARM, FRM, HELOC, HEL, TILA, RESPA, ECOA, HMDA, TRID, URLA, QM, ATR, DU, LP, AUS, GFE, LE, CD, HUD, ALTA, CLTA, CPL, FNMA, FHLMC, GNMA, VOE, VOD, VOM, VOR
 
-General: Roth, FICO, CUSIP, ISIN, ETF, NAV, AUM, EBITDA, P/E, EPS, ROI, ROE, CROIC, FHA, HUD, HOA, APR, MERS, MLS, Fannie Mae, Freddie Mac, Ginnie Mae
+General: FICO, CUSIP, ISIN, ETF, NAV, AUM, EBITDA, P/E, EPS, ROI, ROE, CROIC, FHA, HUD, HOA, APR, MERS, MLS, Fannie Mae, Freddie Mac, Ginnie Mae
+
+"Roth" is handled by context, not as a literal term, because it is also a surname: `is_roth_account()` keeps "Roth" only with a product word after it ("Roth IRA", "Roth 401(k)", "Roth conversion", "Roth vs traditional") or a planning phrase before it ("backdoor Roth", "convert to Roth", "max out the Roth"). "Contribute(d) to" alone does not count ("we contributed to Roth last year", "campaign contributions to Roth" are redacted) unless an account word follows ("contribute to a Roth IRA", "Roth contribution limits"). An article or possessive alone is not enough ("the Roth family" is redacted), a title before it always means a person ("Mr. Roth", "Judge Roth", "Grandma Roth", any case), and an ambiguous case such as "I asked Roth options he prefers" is redacted.
 
 ## Adding New Patterns
 

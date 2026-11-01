@@ -26,10 +26,6 @@ Layers run in sequence; earlier layers have higher confidence and lower latency.
           |                                     |
           +------------------+------------------+
                              |
-                    [ Merge & Deduplicate ]
-                    Regex wins on overlap ties
-                    Higher score wins otherwise
-                             |
                  [ Layer 3: Financial Recognizers ]
                  Custom Presidio PatternRecognizers
                  CUSIP, account refs, policy numbers
@@ -38,7 +34,18 @@ Layers run in sequence; earlier layers have higher confidence and lower latency.
                     [ Layer 4: Allow-List ]
                     Remove detections matching
                     financial data patterns
-                    ($amounts, %, years, acronyms)
+                    ($amounts, %, years, acronyms,
+                    "Roth" as an account type)
+                             |
+                    [ Merge & Deduplicate ]
+                    Overlaps become their union
+                    Higher score names the type
+                    Regex wins ties
+                             |
+                [ Repeated Occurrences ]
+                Every other copy of a detected value
+                (any case, look-alike separators,
+                whitespace runs) gets the same type
                              |
                    [ Placeholder Generation ]
                    Consistent per-document mapping
@@ -47,6 +54,7 @@ Layers run in sequence; earlier layers have higher confidence and lower latency.
                    [ Output Validator ]
                    Verify no PII leaked
                    Validate placeholder format
+                   Fails closed: withholds the output
                              |
                  { sanitized_text + manifest }
 ```
@@ -101,6 +109,15 @@ Two mechanisms work together:
    it's removed from the redaction list.
 2. **Literal terms** — passed to Presidio's `allow_list` parameter to prevent
    NLP detection of financial acronyms (AGI, RMD, LTV, etc.) as person names.
+3. **Context rule for "Roth"** — `is_roth_account()` drops an NLP detection of
+   "Roth" only when it is the account: a product word after it ("Roth IRA",
+   "Roth conversion") or a planning phrase before it ("backdoor Roth",
+   "convert to Roth"). "Roth" is not a literal term, because it is also a
+   surname: "Mr. Roth" and "the Roth family" stay redacted. See
+   allow-list-guide.md.
+
+The allow-list runs on each detection before the merge, so an allow-listed span
+cannot absorb or suppress a real PII detection that overlaps it.
 
 ## Merge Algorithm
 
@@ -109,9 +126,11 @@ When regex and Presidio both detect entities, overlapping detections are resolve
 1. All detections sorted by `(start_position, -score, source_priority)`
 2. Regex entities get source_priority=0 (preferred on ties)
 3. NLP entities get source_priority=1
-4. For overlapping spans, higher score wins
-5. On equal score, longer span preferred
-6. On equal score and span, regex wins (deterministic > probabilistic)
+4. Overlapping spans merge into one entity covering their union, so no
+   character any detector flagged is left in clear
+5. The merged entity takes its type and score from the best detection: higher
+   score, then longer span, then regex (deterministic > probabilistic)
+6. Adjacent spans (one ends where the next starts) stay separate
 
 ## Placeholder Consistency
 
@@ -125,15 +144,20 @@ relationships for AI models ("PERSON_1 is married to PERSON_2").
 The security layer wraps the redaction pipeline:
 
 ```
-Request -> Rate Limiter -> Input Validator -> Injection Detector
+Request -> Auth -> Rate Limiter -> Input Validator -> Injection Detector
                                                     |
                                              Redaction Pipeline
                                                     |
                                             Output Validator -> Response
 ```
 
-Security results are included in the response (not silently applied) so callers
-can implement their own policy decisions.
+The rate limiter covers every authenticated route (`/v1/redact`, `/v1/detect`,
+`/v1/rehydrate`). Input validation and injection detection run on both
+`/v1/redact` and `/v1/detect`. Security results are included in the response
+(not silently applied) so callers can implement their own policy decisions. The
+one exception is the output validator: if it finds an original value in the
+sanitized text, finds the manifest malformed, or fails, `/v1/redact` answers
+500 and returns neither text nor manifest.
 
 ## Stateless Design
 

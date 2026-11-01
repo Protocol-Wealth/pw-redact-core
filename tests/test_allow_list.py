@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from pw_redact.redactor.allow_list import compile_allow_patterns, get_allow_terms
 
 
@@ -205,8 +207,12 @@ class TestAllowTerms:
         terms = get_allow_terms()
         assert isinstance(terms, list)
         assert "AGI" in terms
-        assert "Roth" in terms
         assert "CUSIP" in terms
+
+    def test_roth_is_not_a_literal_term(self):
+        # A literal "Roth" made Presidio drop the surname in "Mr. Roth".
+        # The product sense is kept by is_roth_account() instead.
+        assert "Roth" not in get_allow_terms()
 
     def test_mortgage_terms_present(self):
         terms = get_allow_terms()
@@ -215,3 +221,85 @@ class TestAllowTerms:
         assert "FNMA" in terms
         assert "FHA" in terms
         assert "HOA" in terms
+
+
+# ── Roth: product vs surname ───────────────────────────────────────
+
+
+class TestIsRothAccount:
+    # Product sense needs a product word after or a planning verb before.
+    @staticmethod
+    def _check(text: str, word: str = "Roth") -> bool:
+        from pw_redact.redactor.allow_list import is_roth_account
+
+        start = text.index(word)
+        return is_roth_account(text, start, start + len(word))
+
+    def test_roth_ira(self):
+        assert self._check("Open a Roth IRA.")
+
+    def test_roth_401k(self):
+        assert self._check("Use the Roth 401(k).")
+
+    def test_roth_conversion(self):
+        assert self._check("Roth conversion of 50,000")
+
+    def test_backdoor_roth(self):
+        assert self._check("Explore backdoor Roth.")
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Convert to Roth before year-end.",
+            "Then max out Roth.",
+            "We can max out the Roth this year.",
+            "Contribute to a Roth IRA early.",
+            "Know the Roth contribution limits.",
+            "Max out Roth.",
+            "Roth vs traditional",
+            "Roth versus traditional accounts",
+            "mega backdoor Roth",
+        ],
+    )
+    def test_planning_context_is_product(self, text):
+        assert self._check(text)
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "The Roth family met with us.",
+            "We met the Roth children.",
+            "Send the Roth estate documents.",
+            "I asked Roth options he prefers.",  # ambiguous: redact
+            "We contributed to Roth last year and he thanked us.",
+            "Campaign contributions to Roth were disclosed.",
+            "Contribute to a Roth early.",  # no account word after: redact
+            "their Roth is open",  # possessive alone: redact
+        ],
+    )
+    def test_article_or_possessive_alone_is_person(self, text):
+        assert not self._check(text)
+
+    @pytest.mark.parametrize(
+        "prefix",
+        ["mr.", "MRS", "Judge", "Sen.", "Senator", "Rep.", "Rev.", "Rabbi", "Officer",
+         "Professor", "Prof.", "Grandpa", "Grandma"],
+    )
+    def test_titles_mean_person(self, prefix):
+        assert not self._check(f"{prefix} Roth IRA questions")
+
+    def test_whole_span_roth_ira(self):
+        assert self._check("Fund the Roth IRA.", "Roth IRA")
+
+    def test_honorific_is_person(self):
+        assert not self._check("Mr. Roth called.")
+        assert not self._check("Mrs. Roth IRA questions")  # honorific wins
+
+    def test_bare_name_is_person(self):
+        assert not self._check("I spoke with Roth yesterday.")
+
+    def test_possessive_is_person(self):
+        assert not self._check("Roth's daughter called.")
+
+    def test_other_word_not_matched(self):
+        assert not self._check("Rothschild called.", "Rothschild")

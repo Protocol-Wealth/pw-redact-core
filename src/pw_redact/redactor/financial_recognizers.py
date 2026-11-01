@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from presidio_analyzer import Pattern, PatternRecognizer
 
+from .regex_patterns import KEYWORD_START
+
 
 def get_financial_recognizers() -> list[PatternRecognizer]:
     """Return custom recognizers for financial advisory context."""
@@ -48,7 +50,16 @@ def get_financial_recognizers() -> list[PatternRecognizer]:
         patterns=[
             Pattern(
                 "policy",
-                r"(?i)(?:policy|plan|contract)[\s#:]*([A-Z0-9]{6,20})",
+                # The value must contain a digit in its first 64 characters, so
+                # "plan contributions" or "contract renewal" is not taken for a
+                # policy number, and it is not a bare quarter ("contract
+                # 2025Q1"). The possessive run takes the whole alphanumeric
+                # value however long, so no tail is left in clear; possessive
+                # quantifiers never backtrack, and a failed digit check stops
+                # after 64 characters, so the scan stays linear.
+                r"(?i)" + KEYWORD_START + r"(?:policy|plan|contract)[\s#:]*"
+                r"(?!\d{4}Q[1-4](?![A-Z0-9]))"
+                r"((?=[A-Z0-9]{0,63}\d)[A-Z0-9]{6,64}+[A-Z0-9]*+)",
                 0.6,
             ),
         ],

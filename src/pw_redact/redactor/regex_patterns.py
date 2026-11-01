@@ -31,6 +31,18 @@ class _PatternDef:
     group: int = 0  # 0 = full match, 1+ = capture group index
 
 
+# Keyword-triggered identifier patterns (LOAN_NUMBER, PARCEL_NUMBER, MLS_NUMBER,
+# FILE_REFERENCE, and POLICY_NUMBER in financial_recognizers.py) require the
+# captured value to contain a digit (the "(?=...\d)" lookahead). Without that,
+# the next ordinary word was redacted: "loan application", "title insurance",
+# "listing agreement". Identifiers made only of letters are no longer caught.
+#
+# KEYWORD_START: the keyword is not inside a lowercase word ("denote", "PLANPLAN"),
+# but it may follow "_", a digit or punctuation ("client_loan", "2Mortgage"), or
+# start a camelCase part ("HomeLoan", "2ndMortgage"). The case-sensitive parts
+# use (?-i:...) because the patterns, and Presidio's flags, are case-insensitive.
+KEYWORD_START = r"(?:(?<![a-zA-Z])|(?<=(?-i:[a-z]))(?=(?-i:[A-Z])))"
+
 # Patterns ordered by specificity (highest first).
 # When two patterns match the same span, the higher-score one wins.
 PATTERN_DEFS: dict[str, _PatternDef] = {
@@ -156,8 +168,8 @@ PATTERN_DEFS: dict[str, _PatternDef] = {
     ),
     "LOAN_NUMBER": _PatternDef(
         regex=(
-            r"(?i)(?:loan|mortgage|note)\s*(?:(?:#|no\.?|number|id)\s*)?"
-            r"(?:[#:=]\s*)?([A-Z0-9][-A-Z0-9]{7,19})\b"
+            r"(?i)" + KEYWORD_START + r"(?:loan|mortgage|note)\s*(?:(?:#|no\.?|number|id)\s*)?"
+            r"(?:[#:=]\s*)?((?=[-A-Z0-9]{0,19}\d)[A-Z0-9][-A-Z0-9]{7,19})\b"
         ),
         score=0.80,
         group=1,
@@ -177,26 +189,28 @@ PATTERN_DEFS: dict[str, _PatternDef] = {
     ),
     "PARCEL_NUMBER": _PatternDef(
         regex=(
-            r"(?i)(?:APN|parcel|tax\s*+(?:parcel|id|lot)|property\s*+(?:index|id|PIN)"
+            r"(?i)"
+            + KEYWORD_START
+            + r"(?:APN|parcel|tax\s*+(?:parcel|id|lot)|property\s*+(?:index|id|PIN)"
             r"|assessor)\s*+(?:(?:#|no\.?|number)\s*+)?(?:[#:=]\s*+)?"
-            r"([A-Z0-9][-A-Z0-9./]{4,24}+)\b"
+            r"((?=[-A-Z0-9./]{0,24}\d)[A-Z0-9][-A-Z0-9./]{4,24}+)\b"
         ),
         score=0.80,
         group=1,
     ),
     "MLS_NUMBER": _PatternDef(
         regex=(
-            r"(?i)(?:MLS|listing)\s*(?:(?:#|no\.?|number|id)\s*)?"
-            r"(?:[#:=]\s*)?([A-Z0-9]{6,15})\b"
+            r"(?i)" + KEYWORD_START + r"(?:MLS|listing)\s*(?:(?:#|no\.?|number|id)\s*)?"
+            r"(?:[#:=]\s*)?((?=[A-Z0-9]{0,14}\d)[A-Z0-9]{6,15})\b"
         ),
         score=0.75,
         group=1,
     ),
     "FILE_REFERENCE": _PatternDef(
         regex=(
-            r"(?i)(?:escrow|title|closing|instrument|recording|document)"
+            r"(?i)" + KEYWORD_START + r"(?:escrow|title|closing|instrument|recording|document)"
             r"\s*(?:(?:#|no\.?|number)\s*)?(?:[#:=]\s*)?"
-            r"([A-Z0-9][-A-Z0-9]{5,19})\b"
+            r"((?=[-A-Z0-9]{0,19}\d)[A-Z0-9][-A-Z0-9]{5,19})\b"
         ),
         score=0.75,
         group=1,

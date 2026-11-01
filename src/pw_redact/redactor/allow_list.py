@@ -51,7 +51,9 @@ ALLOW_TERMS: list[str] = [
     "SIMPLE",
     "HSA",
     "FSA",
-    "Roth",
+    # "Roth" is deliberately absent: it is also a surname ("Mr. Roth"), and a
+    # literal entry here made Presidio drop every lone "Roth" PERSON detection.
+    # is_roth_account() keeps the product sense instead, from its context.
     "FICO",
     "CUSIP",
     "ISIN",
@@ -106,6 +108,64 @@ ALLOW_TERMS: list[str] = [
     "Freddie Mac",
     "Ginnie Mae",
 ]
+
+
+# "Roth" as a retirement product. Product context is a product word right after
+# ("Roth IRA", "Roth conversion", "Roth vs traditional") or a planning verb or
+# "backdoor" right before ("convert to Roth", "max out the Roth", "backdoor
+# Roth"). "contribute(d) to" is not product context on its own: "we contributed
+# to Roth last year" and "campaign contributions to Roth" are people. With an
+# account word after it ("contribute to a Roth IRA", "Roth contribution
+# limits") the product word already decides. An article or possessive alone
+# is not product context: "the Roth family", "the Roth estate documents" are
+# people. When in doubt the detection is kept, i.e. "Roth" is redacted: "I
+# asked Roth options he prefers" could be either, so "options" is deliberately
+# not a product word.
+_ROTH_WORD = re.compile(r"(?i)roth")
+_ROTH_PRODUCT_AFTER = re.compile(
+    r"(?i)\s*+(?:IRA|401\(?k\)?|403\(?b\)?|457\(?b\)?|TSP|conversions?|"
+    r"contributions?|accounts?|ladder|strategy|rollovers?|elections?|limits?|"
+    r"deferrals?|assets|balances?|money|funds?|dollars|savings|recharacterization|"
+    r"(?:vs\.?|versus|or)\s++(?:a\s++)?traditional)\b"
+)
+_DETERMINER = r"(?:a|an|the|my|your|his|her|their|our)\s++"
+_ROTH_PRODUCT_BEFORE = re.compile(
+    r"(?i)\b(?:"
+    r"(?:mega\s++)?backdoor"
+    r"|conver(?:t|ts|ted|ting|sion)\s++(?:it\s++|them\s++)?(?:to|into)"
+    r"|max(?:es|ed|ing)?\s++(?:it\s++)?out"
+    r")\s++(?:" + _DETERMINER + r")?$"
+)
+# An honorific or title right before "Roth" means a person, whatever follows.
+_ROTH_PERSON_BEFORE = re.compile(
+    r"(?i)\b(?:Mr|Mrs|Ms|Mx|Miss|Dr|Prof|Professor|Judge|Sen|Senator|Rep|Rev|Rabbi|"
+    r"Officer|Grandpa|Grandma)\.?\s++$"
+)
+
+
+def is_roth_account(text: str, start: int, end: int) -> bool:
+    """True if ``text[start:end]`` is "Roth" used as a retirement product.
+
+    "Roth IRA", "Roth 401(k)", "a Roth conversion", "backdoor Roth" and
+    "convert to Roth" are the product; "Mr. Roth", "Judge Roth" and "the Roth
+    family" are people and stay detected. ("Jane Roth" never
+    reaches this check: the detection is the whole name, not "Roth".)
+    A span longer than the word itself (e.g. Presidio's "Roth IRA") is the
+    product if it is "Roth" plus a product word.
+    """
+    span = text[start:end]
+    head = _ROTH_WORD.match(span)
+    if head is None:
+        return False
+    rest = span[head.end() :]
+    if rest and not _ROTH_PRODUCT_AFTER.fullmatch(rest):
+        return False
+    before = text[max(0, start - 40) : start]
+    if _ROTH_PERSON_BEFORE.search(before):
+        return False
+    if rest:
+        return True
+    return bool(_ROTH_PRODUCT_AFTER.match(text, end) or _ROTH_PRODUCT_BEFORE.search(before))
 
 
 def compile_allow_patterns() -> list[re.Pattern[str]]:

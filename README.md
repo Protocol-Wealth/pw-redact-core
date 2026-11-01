@@ -156,14 +156,15 @@ result = redactor.redact(text, context="real_estate")
 ### As an API Server
 
 ```bash
-export PW_REDACT_API_KEY=your-secret-key
+# At least 32 characters; the server refuses to start with an unset, short or placeholder key
+export PW_REDACT_API_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(48))")
 uvicorn pw_redact.main:app --host 0.0.0.0 --port 8080
 ```
 
 ```bash
 # Redact
 curl -X POST http://localhost:8080/v1/redact \
-  -H "Authorization: Bearer your-secret-key" \
+  -H "Authorization: Bearer $PW_REDACT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"text": "John Smith SSN 123-45-6789", "context": "general"}'
 
@@ -175,7 +176,7 @@ curl http://localhost:8080/v1/health
 
 ```bash
 docker build -t pw-redact .
-docker run -p 8080:8080 -e PW_REDACT_API_KEY=your-key pw-redact
+docker run -p 8080:8080 -e PW_REDACT_API_KEY="$PW_REDACT_API_KEY" pw-redact
 ```
 
 ## API Reference
@@ -243,9 +244,13 @@ Restore original values from placeholders using the manifest.
 }
 ```
 
+A malformed manifest (placeholders not a list, a placeholder not in `<TYPE_N>`
+format, a non-string value, an original over 1,000 characters) is answered with
+422 and `{"detail": "Invalid manifest: ..."}`.
+
 ### POST /v1/detect
 
-Detect PII locations without redacting. Returns entity positions, types, and confidence scores. Useful for UI highlighting.
+Detect PII locations without redacting. Returns entity positions, types, and confidence scores. Useful for UI highlighting. Input validation is the same as for `/v1/redact`: oversized input is refused with 413, and detection runs on the sanitized text, so offsets match the `/v1/redact` manifest. **Offsets refer to the sanitized text**, not the raw request text: when `security.input_sanitized` is true (HTML stripped, control characters removed, ...), `start`/`end` index into the text after sanitization. Previously `/v1/detect` skipped sanitization and its offsets indexed the raw text. Every occurrence of a detected value is reported, including copies in another case or with look-alike separators.
 
 **Request:**
 ```json
@@ -261,7 +266,15 @@ Detect PII locations without redacting. Returns entity positions, types, and con
   "entities": [
     {"entity_type": "PERSON", "text": "John Smith", "start": 0, "end": 10, "score": 0.85},
     {"entity_type": "US_SSN", "text": "123-45-6789", "start": 20, "end": 31, "score": 0.90}
-  ]
+  ],
+  "security": {
+    "input_sanitized": false,
+    "sanitization_actions": [],
+    "injection_detected": false,
+    "injection_score": 0.0,
+    "injection_patterns": [],
+    "request_id": "req_a1b2c3d4e5f6"
+  }
 }
 ```
 
@@ -363,17 +376,20 @@ For vulnerability reports, see [SECURITY.md](SECURITY.md).
 - 25 patterns across 7 categories: instruction override, identity manipulation, prompt extraction, injection keywords, encoded variants (leetspeak, spaced characters), role-play/persona, delimiter manipulation
 - Returns a confidence score (0.0-1.0) and list of matched patterns
 - **Advisory only** — flags suspicious input but does NOT block it. Advisors may legitimately paste client emails containing unusual text. The caller decides policy.
-- Injection data included in the `/v1/redact` response `security` key
+- Injection data included in the `/v1/redact` and `/v1/detect` response `security` key
 
 ### Output Validation
-- Verifies no original PII values leaked into `sanitized_text`
+- Verifies no original PII values leaked into `sanitized_text`. The comparison ignores case, look-alike dashes and spaces, invisible characters and whitespace runs, so "JOHN SMITH" counts as a leak of "John Smith". The engine already replaces every such occurrence of a detected value (5+ characters), so this is the backstop.
+- Warnings are fixed codes (`pii_leak:US_SSN`, `invalid_placeholder_format`) and never quote input text
 - Validates all placeholders match the `<TYPE_N>` format
 - Checks manifest structural integrity
+- **Fails closed** — on a leak, a malformed manifest, or an error in the check itself, `/v1/redact` answers 500 and returns neither `sanitized_text` nor `manifest`. A placeholder-format warning alone stays advisory (caller text can contain `<...>`).
 
 ### Rate Limiting
-- In-memory token bucket per API key
+- In-memory token bucket per API key, shared by every authenticated route (`/v1/redact`, `/v1/detect`, `/v1/rehydrate`)
 - Default: 60 requests/minute, 10 requests/second burst
 - Returns 429 with `Retry-After` header when exceeded
+- Failed authentication (401/403) has its own small budget per client IP (5 burst, 10/minute); past it, failed attempts get 429. A correct key is never refused by this budget, so one consumer with a stale key behind a shared proxy cannot lock out the others. Behind a proxy, run uvicorn with `--forwarded-allow-ips` so the client IP is the caller's.
 - Configurable via `RATE_LIMIT_RPM` and `RATE_LIMIT_BURST` env vars
 
 ### Request Tracing

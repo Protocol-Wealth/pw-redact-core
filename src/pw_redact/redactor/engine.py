@@ -10,10 +10,12 @@ import unicodedata
 import uuid
 from dataclasses import dataclass
 
-from .allow_list import compile_allow_patterns, get_allow_terms
+from .allow_list import compile_allow_patterns, get_allow_terms, is_roth_account
 from .manifest import PlaceholderEntry, RedactionManifest
+from .occurrences import MIN_MATCH_LENGTH, find_occurrences, fold
 from .presidio_config import create_analyzer
 from .regex_patterns import DetectedEntity, detect_regex
+from .unicode_canon import canonicalize, to_original_span
 
 # Map Presidio entity type names to canonical names
 _TYPE_MAP: dict[str, str] = {
@@ -127,41 +129,19 @@ class PWRedactor:
         Returns:
             RedactionResult with sanitized_text and manifest.
         """
-        # Normalize Unicode to NFC to prevent bypass via decomposed forms
-        # (e.g. NFD "e" + combining acute vs NFC "é", soft hyphens in SSNs)
+        # NFC composes decomposed forms (NFD "e" + combining acute -> "é").
+        # It does NOT remove soft hyphens or zero-width characters, nor map
+        # look-alike dashes and spaces; detection handles those on a
+        # canonical copy (see _find_entities). Offsets below are in this
+        # NFC text, which is also the text the sanitized output is built from.
         text = unicodedata.normalize("NFC", text)
 
         # Per-request state for placeholder consistency
         placeholder_map: dict[str, str] = {}
         type_counters: dict[str, int] = {}
 
-        # Step 1: Regex detection (Layer 1)
-        regex_entities = detect_regex(text)
-
-        # Step 2: Presidio NLP detection (Layers 2 + 3)
-        entities_to_detect = _CONTEXT_ENTITIES.get(context, _CONTEXT_ENTITIES["general"])
-        presidio_results = self._analyzer.analyze(
-            text=text,
-            entities=entities_to_detect,
-            language="en",
-            allow_list=self._allow_terms,
-        )
-        nlp_entities = [
-            DetectedEntity(
-                entity_type=_TYPE_MAP.get(r.entity_type, r.entity_type),
-                start=r.start,
-                end=r.end,
-                score=r.score,
-                text=text[r.start : r.end],
-            )
-            for r in presidio_results
-        ]
-
-        # Step 3: Merge and deduplicate (regex preferred on ties)
-        merged = _merge_entities(regex_entities, nlp_entities)
-
-        # Step 4: Apply allow-list filter (Layer 4)
-        filtered = [e for e in merged if not any(p.fullmatch(e.text) for p in self._allow_patterns)]
+        # Steps 1-4: regex, Presidio, merge, allow-list
+        filtered = self._find_entities(text, context)
 
         # Step 5: Generate placeholders and build manifest entries
         filtered.sort(key=lambda e: e.start)
@@ -203,10 +183,32 @@ class PWRedactor:
     def detect(self, text: str, context: str = "general") -> list[DetectedEntity]:
         """Detect PII locations without redacting. For UI highlighting."""
         text = unicodedata.normalize("NFC", text)
-        regex_entities = detect_regex(text)
+        return self._find_entities(text, context)
+
+    def _is_allowed(self, value: str) -> bool:
+        return any(p.fullmatch(value) for p in self._allow_patterns)
+
+    def _find_entities(self, text: str, context: str) -> list[DetectedEntity]:
+        """Run Layers 1-4 on a canonical copy of ``text``; return spans of ``text``.
+
+        Detection runs on ``canonicalize(text)``: look-alike dashes become
+        "-", look-alike spaces become " ", and invisible characters (zero-width,
+        soft hyphen, bidi controls) are dropped, so an SSN written with U+2011
+        non-breaking hyphens, or with a zero-width space inside it, matches the
+        SSN pattern. Every returned span and ``text`` value is mapped back to
+        ``text`` itself, so the manifest keeps the caller's exact original for
+        rehydration and replacement covers the whole value, hidden characters
+        included.
+        """
+        canon, index_map = canonicalize(text)
+
+        # Layer 1: deterministic regex
+        regex_entities = detect_regex(canon)
+
+        # Layers 2 + 3: Presidio NLP and custom recognizers
         entities_to_detect = _CONTEXT_ENTITIES.get(context, _CONTEXT_ENTITIES["general"])
         presidio_results = self._analyzer.analyze(
-            text=text,
+            text=canon,
             entities=entities_to_detect,
             language="en",
             allow_list=self._allow_terms,
@@ -217,22 +219,83 @@ class PWRedactor:
                 start=r.start,
                 end=r.end,
                 score=r.score,
-                text=text[r.start : r.end],
+                text=canon[r.start : r.end],
             )
             for r in presidio_results
         ]
-        merged = _merge_entities(regex_entities, nlp_entities)
-        return [e for e in merged if not any(p.fullmatch(e.text) for p in self._allow_patterns)]
+
+        # Layer 4: allow-list, judged per detection on the canonical text the
+        # patterns expect. It runs before the merge so that an allow-listed
+        # detection (a dollar amount, a form number) can neither absorb nor
+        # suppress a real PII detection that overlaps it.
+        regex_entities = [e for e in regex_entities if not self._is_allowed(e.text)]
+        nlp_entities = [
+            e
+            for e in nlp_entities
+            if not self._is_allowed(e.text) and not is_roth_account(canon, e.start, e.end)
+        ]
+
+        # Merge overlapping detections into their union (regex preferred on ties)
+        kept = _merge_entities(regex_entities, nlp_entities, canon)
+
+        mapped: list[DetectedEntity] = []
+        for e in kept:
+            start, end = to_original_span(index_map, e.start, e.end)
+            mapped.append(
+                DetectedEntity(
+                    entity_type=e.entity_type,
+                    start=start,
+                    end=end,
+                    score=e.score,
+                    text=text[start:end],
+                )
+            )
+        return _add_repeated_occurrences(mapped, text)
+
+
+def _add_repeated_occurrences(entities: list[DetectedEntity], text: str) -> list[DetectedEntity]:
+    """Cover every other occurrence of each detected value.
+
+    A detector can catch "John Smith" once and miss "JOHN SMITH" later, or
+    catch "AB123456" and miss "ab123456" or a copy with a non-breaking hyphen.
+    Each such occurrence (same value after canonicalization, case folding and
+    whitespace collapsing; see occurrences.py) becomes an entity of the same
+    type, and overlaps are merged into their union as usual. Values shorter
+    than MIN_MATCH_LENGTH are not propagated.
+    """
+    if not entities:
+        return entities
+    folded = fold(text)
+    covered = {(e.start, e.end) for e in entities}
+    extra: list[DetectedEntity] = []
+    seen: set[str] = set()
+    for e in sorted(entities, key=lambda e: -e.score):
+        key = fold(e.text)[0].strip(" ")
+        if len(key) < MIN_MATCH_LENGTH or key in seen:
+            continue
+        seen.add(key)
+        for start, end in find_occurrences(e.text, text, folded):
+            if (start, end) not in covered:
+                covered.add((start, end))
+                extra.append(DetectedEntity(e.entity_type, start, end, e.score, text[start:end]))
+    if not extra:
+        return entities
+    # Detected entities first (source 0) so they keep their type on ties.
+    return _merge_entities(entities, extra, text)
 
 
 def _merge_entities(
     regex_entities: list[DetectedEntity],
     nlp_entities: list[DetectedEntity],
+    text: str,
 ) -> list[DetectedEntity]:
-    """Merge regex and NLP entities, deduplicating overlaps.
+    """Merge regex and NLP entities into non-overlapping spans.
 
-    When two detections overlap, the higher-scoring one wins.
-    Regex wins ties (lower source priority value).
+    Overlapping detections become one entity covering their union, so no
+    character any detector flagged is left in clear. The higher-scoring
+    detection names the entity type; on equal scores the longer span wins,
+    then regex. Adjacent detections (one ends where the next starts) stay
+    separate: together they already cover every flagged character.
     """
     # Tag with source: 0 = regex (preferred), 1 = NLP
     tagged: list[tuple[DetectedEntity, int]] = []
@@ -244,19 +307,26 @@ def _merge_entities(
     # Sort by start position, then score descending, then source (regex first)
     tagged.sort(key=lambda t: (t[0].start, -t[0].score, t[1]))
 
-    merged: list[DetectedEntity] = []
+    # Each group: (union start, union end, winning detection)
+    groups: list[tuple[int, int, DetectedEntity]] = []
     for entity, _source in tagged:
-        if merged and entity.start < merged[-1].end:
-            # Overlapping — keep the better detection
-            prev = merged[-1]
-            if entity.score > prev.score:
-                merged[-1] = entity
-            elif entity.score == prev.score and (entity.end - entity.start) > (
-                prev.end - prev.start
+        if groups and entity.start < groups[-1][1]:
+            start, end, best = groups[-1]
+            if entity.score > best.score or (
+                entity.score == best.score and (entity.end - entity.start) > (best.end - best.start)
             ):
-                # Same score, prefer longer span
-                merged[-1] = entity
+                best = entity
+            groups[-1] = (start, max(end, entity.end), best)
         else:
-            merged.append(entity)
+            groups.append((entity.start, entity.end, entity))
 
-    return merged
+    return [
+        DetectedEntity(
+            entity_type=best.entity_type,
+            start=start,
+            end=end,
+            score=best.score,
+            text=text[start:end],
+        )
+        for start, end, best in groups
+    ]

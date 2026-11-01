@@ -35,6 +35,8 @@ class PWRehydrator:
             ValueError: If manifest contains invalid placeholder formats or
                         exceeds safety limits.
         """
+        if not isinstance(manifest, dict):
+            raise ValueError("manifest must be an object")
         placeholders = manifest.get("placeholders", [])
 
         if not isinstance(placeholders, list):
@@ -50,6 +52,8 @@ class PWRehydrator:
 
             placeholder = entry.get("placeholder", "")
             original = entry.get("original", "")
+            if not isinstance(placeholder, str) or not isinstance(original, str):
+                raise ValueError("manifest placeholder and original values must be strings")
 
             # Validate placeholder format
             if not _VALID_PLACEHOLDER.fullmatch(placeholder):

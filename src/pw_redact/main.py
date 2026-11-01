@@ -11,15 +11,16 @@ import uuid
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
 from . import __version__
 from .auth import verify_api_key
+from .config import api_key_problem, settings
 from .models.requests import DetectRequest, RedactRequest, RehydrateRequest
 from .redactor.engine import PWRedactor
 from .rehydrator.engine import PWRehydrator
-from .security.input_validator import validate_input
+from .security.input_validator import ValidationResult, validate_input
 from .security.output_validator import validate_output
 from .security.prompt_injection_detector import detect_injection
 from .security.rate_limiter import RateLimiter
@@ -40,6 +41,13 @@ def get_redactor() -> PWRedactor:
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     global _redactor, _rate_limiter
+    # Refuse to start rather than serve with a key that is missing or public.
+    problem = api_key_problem(settings.pw_redact_api_key)
+    if problem:
+        raise RuntimeError(
+            f"{problem}. Set it to a strong random value, for example: "
+            'python3 -c "import secrets; print(secrets.token_urlsafe(48))"'
+        )
     _redactor = PWRedactor()
     _rate_limiter = RateLimiter()
     yield
@@ -131,7 +139,7 @@ async def landing_page() -> HTMLResponse:
 
   <p>
     <span class="tag">v{__version__}</span>
-    <span class="tag">Apache 2.0</span>
+    <span class="tag">MIT</span>
     <span class="tag">Python 3.12+</span>
     <span class="tag">Stateless</span>
   </p>
@@ -156,7 +164,7 @@ async def landing_page() -> HTMLResponse:
 
   <h2>Quick Example</h2>
   <pre>curl -X POST https://YOUR_DEPLOYMENT_URL/v1/redact \\
-  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Authorization: Bearer $PW_REDACT_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{{"text": "John Smith SSN 123-45-6789. AGI $425,000.", "context": "general"}}'</pre>
 
@@ -231,8 +239,10 @@ ages, IRS form references, 60+ financial acronyms (AGI, LTV, DTI, TILA, etc.)
 ## Security
 - Input validation: strips control chars, invisible Unicode, HTML, base64 blocks
 - Prompt injection detection: 25 patterns, advisory only (flags, does not block)
-- Output validation: verifies no PII leaked, validates placeholder format
-- Rate limiting: token bucket per API key (default 60 RPM, 10 burst)
+- Output validation: verifies no PII leaked, validates placeholder format;
+  fails closed (500, output withheld) on a leak or a failed check
+- Rate limiting: token bucket per API key on every authenticated route
+  (default 60 RPM, 10 burst)
 - Security headers: HSTS, CSP, X-Frame-Options DENY, nosniff, no-store
 - Timing-safe auth: hmac.compare_digest() prevents key extraction
 - ReDoS protection: possessive quantifiers via regex module
@@ -299,32 +309,41 @@ async def health() -> dict:
     }
 
 
-@app.post("/v1/redact")
-async def redact(
-    req: RedactRequest,
+async def authorized_and_rate_limited(
     request: Request,
     _: None = Depends(verify_api_key),
-) -> JSONResponse:
-    request_id = getattr(request.state, "request_id", "unknown")
-
+) -> None:
+    """Authenticate, then apply the rate limit. Every authenticated route uses this."""
     # Rate limiting — key by auth header (not context, which is user-controlled)
     assert _rate_limiter is not None
     rate_key = request.headers.get("authorization", "anon")
     allowed, retry_after = _rate_limiter.check(rate_key)
     if not allowed:
-        return JSONResponse(
+        raise HTTPException(
             status_code=429,
-            content={"detail": "Rate limit exceeded"},
+            detail="Rate limit exceeded",
             headers={"Retry-After": str(retry_after)},
         )
 
-    # Input validation
-    validation = validate_input(req.text)
+
+def _validated_input(text: str) -> ValidationResult:
+    """Run input validation; raise 413 if the input is rejected."""
+    validation = validate_input(text)
     if not validation.is_valid:
-        return JSONResponse(
-            status_code=413,
-            content={"detail": validation.error},
-        )
+        raise HTTPException(status_code=413, detail=validation.error)
+    return validation
+
+
+@app.post("/v1/redact")
+async def redact(
+    req: RedactRequest,
+    request: Request,
+    _: None = Depends(authorized_and_rate_limited),
+) -> JSONResponse:
+    request_id = getattr(request.state, "request_id", "unknown")
+
+    # Input validation
+    validation = _validated_input(req.text)
 
     # Prompt injection detection (advisory, not blocking)
     injection = detect_injection(validation.text)
@@ -333,9 +352,20 @@ async def redact(
     redactor = get_redactor()
     result = redactor.redact(validation.text, context=req.context)
 
-    # Output validation
+    # Output validation. Fails closed: if an original value is still in the
+    # text, the manifest is malformed, or the check itself fails, nothing
+    # derived from the input is returned.
     manifest_dict = result.manifest.to_dict()
     output_check = validate_output(result.sanitized_text, manifest_dict)
+    if not output_check.safe_to_return:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "Redaction output failed the leak check; response withheld",
+                "output_warnings": output_check.warnings,
+                "request_id": request_id,
+            },
+        )
 
     return JSONResponse(
         content={
@@ -358,19 +388,29 @@ async def redact(
 @app.post("/v1/rehydrate")
 async def rehydrate(
     req: RehydrateRequest,
-    _: None = Depends(verify_api_key),
+    _: None = Depends(authorized_and_rate_limited),
 ) -> dict:
-    restored = _rehydrator.rehydrate(req.text, req.manifest)
+    try:
+        restored = _rehydrator.rehydrate(req.text, req.manifest)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid manifest: {exc}") from exc
     return {"rehydrated_text": restored}
 
 
 @app.post("/v1/detect")
 async def detect(
     req: DetectRequest,
-    _: None = Depends(verify_api_key),
+    request: Request,
+    _: None = Depends(authorized_and_rate_limited),
 ) -> dict:
+    # Same input validation as /v1/redact: oversized input is refused, and
+    # detection runs on the sanitized text, so offsets match what /v1/redact
+    # would replace.
+    validation = _validated_input(req.text)
+    injection = detect_injection(validation.text)
+
     redactor = get_redactor()
-    entities = redactor.detect(req.text, context=req.context)
+    entities = redactor.detect(validation.text, context=req.context)
     return {
         "entities": [
             {
@@ -382,4 +422,12 @@ async def detect(
             }
             for e in entities
         ],
+        "security": {
+            "input_sanitized": len(validation.actions) > 0,
+            "sanitization_actions": validation.actions,
+            "injection_detected": injection.is_suspicious,
+            "injection_score": injection.injection_score,
+            "injection_patterns": injection.detected_patterns,
+            "request_id": getattr(request.state, "request_id", "unknown"),
+        },
     }
