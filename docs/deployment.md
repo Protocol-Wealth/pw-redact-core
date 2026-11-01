@@ -15,7 +15,7 @@ on any container platform.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `PW_REDACT_API_KEY` | Yes | — | Bearer token for API authentication |
+| `PW_REDACT_API_KEY` | Yes | — | Bearer token for API authentication. At least 32 characters; the server refuses to start, and refuses every request with 503, when it is unset, shorter, or a placeholder from these docs |
 | `ENVIRONMENT` | No | `development` | `production` enables JSON logging |
 | `LOG_LEVEL` | No | `info` | Logging level (debug, info, warning, error) |
 | `SPACY_MODEL` | No | `en_core_web_lg` | spaCy model name (`en_core_web_md` for lighter deployments) |
@@ -31,7 +31,7 @@ docker build -t pw-redact .
 
 # Run
 docker run -p 8080:8080 \
-  -e PW_REDACT_API_KEY=your-strong-random-key \
+  -e PW_REDACT_API_KEY="$PW_REDACT_API_KEY" \
   -e ENVIRONMENT=production \
   pw-redact
 
@@ -74,7 +74,7 @@ curl https://your-app-name.fly.dev/v1/health
 railway link
 
 # Set env vars
-railway variables set PW_REDACT_API_KEY=your-key
+railway variables set PW_REDACT_API_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(48))")
 railway variables set ENVIRONMENT=production
 
 # Deploy
@@ -123,11 +123,11 @@ Generate a new key and update the secret without downtime:
 
 ```bash
 # Fly.io
-fly secrets set PW_REDACT_API_KEY=new-strong-random-key
+fly secrets set PW_REDACT_API_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(48))")
 # Machines restart automatically with new secret
 
 # Docker
-docker run -e PW_REDACT_API_KEY=new-key ...
+docker run -e PW_REDACT_API_KEY="$NEW_PW_REDACT_API_KEY" ...
 ```
 
 Update the key in all consumers simultaneously,

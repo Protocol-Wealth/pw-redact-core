@@ -164,7 +164,7 @@ async def landing_page() -> HTMLResponse:
 
   <h2>Quick Example</h2>
   <pre>curl -X POST https://YOUR_DEPLOYMENT_URL/v1/redact \\
-  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Authorization: Bearer $PW_REDACT_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{{"text": "John Smith SSN 123-45-6789. AGI $425,000.", "context": "general"}}'</pre>
 

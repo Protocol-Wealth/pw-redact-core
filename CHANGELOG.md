@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### Security
 - The service refuses to start, and refuses every authenticated request with 503, when `PW_REDACT_API_KEY` is unset, empty, or still the `.env.example` placeholder. Previously the key defaulted to that public placeholder, so an unconfigured deployment accepted it.
 - Detection runs on a canonical copy of the text: look-alike dashes (U+2010-U+2015, U+2212, U+FE58, U+FE63, U+FF0D) become `-`, look-alike spaces (NBSP, narrow NBSP, U+2000-U+200A, U+205F, U+3000, U+1680) become a space, and invisible characters (zero-width, soft hyphen, bidi controls, BOM) are dropped. SSNs, card numbers and emails written with them were previously returned unredacted. Offsets, manifest originals and replacement stay on the caller's text, so rehydration restores it exactly. Applies to `redact`, `detect`, and both API routes.
+- The API key guard also refuses every example key the docs have shown (`your-secret-key`, `your-key`, `your-strong-random-key`, `new-strong-random-key`, `new-key`, `YOUR_API_KEY`) and any key shorter than 32 characters. README, `docs/deployment.md` and the landing page now generate a key or read `$PW_REDACT_API_KEY` instead of showing a literal one.
 
 ### Fixed
 - The landing page license tag said "Apache 2.0"; the project is MIT.

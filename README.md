@@ -156,14 +156,15 @@ result = redactor.redact(text, context="real_estate")
 ### As an API Server
 
 ```bash
-export PW_REDACT_API_KEY=your-secret-key
+# At least 32 characters; the server refuses to start with an unset, short or placeholder key
+export PW_REDACT_API_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(48))")
 uvicorn pw_redact.main:app --host 0.0.0.0 --port 8080
 ```
 
 ```bash
 # Redact
 curl -X POST http://localhost:8080/v1/redact \
-  -H "Authorization: Bearer your-secret-key" \
+  -H "Authorization: Bearer $PW_REDACT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"text": "John Smith SSN 123-45-6789", "context": "general"}'
 
@@ -175,7 +176,7 @@ curl http://localhost:8080/v1/health
 
 ```bash
 docker build -t pw-redact .
-docker run -p 8080:8080 -e PW_REDACT_API_KEY=your-key pw-redact
+docker run -p 8080:8080 -e PW_REDACT_API_KEY="$PW_REDACT_API_KEY" pw-redact
 ```
 
 ## API Reference

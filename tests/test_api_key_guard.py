@@ -15,7 +15,14 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 import pw_redact.main as main_module
-from pw_redact.config import PLACEHOLDER_API_KEY, Settings, api_key_problem, settings
+from pw_redact.config import (
+    MIN_API_KEY_LENGTH,
+    PLACEHOLDER_API_KEY,
+    PLACEHOLDER_API_KEYS,
+    Settings,
+    api_key_problem,
+    settings,
+)
 from pw_redact.main import app, lifespan
 from pw_redact.security.rate_limiter import RateLimiter
 
@@ -24,7 +31,18 @@ UNUSABLE = {
     "whitespace": "   ",
     "placeholder": PLACEHOLDER_API_KEY,
     "placeholder with spaces": f"  {PLACEHOLDER_API_KEY}\n",
+    "doc placeholder": "your-secret-key",
+    "short": "k" * (MIN_API_KEY_LENGTH - 1),
 }
+# Every example key the README, docs/deployment.md and the landing page have shown.
+DOC_PLACEHOLDERS = [
+    "your-secret-key",
+    "your-key",
+    "your-strong-random-key",
+    "new-strong-random-key",
+    "new-key",
+    "YOUR_API_KEY",
+]
 BODY = {"text": "SSN 123-45-6789", "context": "general"}
 
 
@@ -55,6 +73,29 @@ def test_unset_env_means_empty_key(monkeypatch):
 @pytest.mark.parametrize("value", list(UNUSABLE.values()), ids=list(UNUSABLE))
 def test_unusable_keys_are_named(value):
     assert api_key_problem(value) is not None
+
+
+@pytest.mark.parametrize("value", DOC_PLACEHOLDERS)
+def test_documented_placeholders_are_refused(value):
+    assert value in PLACEHOLDER_API_KEYS
+    assert "placeholder" in api_key_problem(value)
+
+
+def test_keys_shorter_than_minimum_are_refused():
+    assert "shorter" in api_key_problem("k" * (MIN_API_KEY_LENGTH - 1))
+    assert api_key_problem("k" * MIN_API_KEY_LENGTH) is None
+
+
+def test_docs_no_longer_show_a_literal_key():
+    """README and deployment docs generate a key or read it from the env var."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    for doc in ("README.md", "docs/deployment.md", "src/pw_redact/main.py"):
+        text = (root / doc).read_text()
+        for value in PLACEHOLDER_API_KEYS - {PLACEHOLDER_API_KEY}:
+            assert f"PW_REDACT_API_KEY={value}" not in text, (doc, value)
+            assert f"Bearer {value}" not in text, (doc, value)
 
 
 def test_a_real_key_is_usable():
