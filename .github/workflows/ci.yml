@@ -20,22 +20,37 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    env:
+      SPACY_MODEL_WHEEL: en_core_web_lg-3.8.0-py3-none-any.whl
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
-      - name: Cache spaCy model
+      # `spacy download` pip-installs a wheel into site-packages, so caching
+      # ~/.cache/spacy never hit. Cache the pinned model wheel itself and
+      # install it from disk; pip's own cache covers the other dependencies.
+      - name: Cache spaCy model wheel
+        id: spacy-wheel
         uses: actions/cache@v4
         with:
-          path: ~/.cache/spacy
-          key: spacy-en_core_web_lg-3.8.0
+          path: ~/.cache/spacy-wheels
+          key: spacy-wheel-${{ env.SPACY_MODEL_WHEEL }}
+
+      - name: Download spaCy model wheel
+        if: steps.spacy-wheel.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.cache/spacy-wheels
+          curl -fsSL --retry 3 -o ~/.cache/spacy-wheels/$SPACY_MODEL_WHEEL \
+            "https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/$SPACY_MODEL_WHEEL"
 
       - name: Install dependencies
         run: |
           pip install -e ".[dev]" pytest-cov
-          python -m spacy download en_core_web_lg
+          pip install ~/.cache/spacy-wheels/$SPACY_MODEL_WHEEL
 
       - name: Run tests with coverage
         run: |
