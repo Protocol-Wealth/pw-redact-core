@@ -10,10 +10,24 @@ from pathlib import Path
 
 import pytest
 
+from pw_redact.config import settings
 from pw_redact.redactor.engine import PWRedactor
 from pw_redact.rehydrator.engine import PWRehydrator
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+# Test-only key. Not a secret: it exists so the API tests run with a configured
+# key, now that an unset key or the .env.example placeholder is refused.
+TEST_API_KEY = "test-only-key-not-a-secret-0123456789"
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _configured_api_key():
+    """Configure a usable API key for the whole session; restore it afterwards."""
+    previous = settings.pw_redact_api_key
+    settings.pw_redact_api_key = TEST_API_KEY
+    yield
+    settings.pw_redact_api_key = previous
 
 
 @pytest.fixture(scope="session")

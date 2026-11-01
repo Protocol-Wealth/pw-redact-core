@@ -10,11 +10,17 @@ import hmac
 
 from fastapi import Header, HTTPException
 
-from .config import settings
+from .config import api_key_problem, settings
 
 
 async def verify_api_key(authorization: str = Header(...)) -> None:
-    """Verify internal service API key from Authorization header."""
+    """Verify internal service API key from Authorization header.
+
+    Fails closed: with no usable key configured, every request is refused,
+    even if the app was started without its lifespan check.
+    """
+    if api_key_problem(settings.pw_redact_api_key):
+        raise HTTPException(status_code=503, detail="Service API key is not configured")
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Invalid auth format")
     token = authorization.removeprefix("Bearer ")

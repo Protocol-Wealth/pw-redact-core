@@ -13,7 +13,7 @@ import pw_redact.main as main_module
 from pw_redact.main import app
 from pw_redact.security.rate_limiter import RateLimiter
 
-VALID_AUTH = {"Authorization": "Bearer change-me-to-a-strong-random-key"}
+VALID_AUTH = {"Authorization": "Bearer test-only-key-not-a-secret-0123456789"}
 
 
 @pytest.fixture(autouse=True, scope="module")

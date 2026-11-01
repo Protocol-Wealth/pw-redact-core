@@ -21,7 +21,7 @@ from pw_redact.main import app
 from pw_redact.security.rate_limiter import RateLimiter
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
-AUTH = {"Authorization": "Bearer change-me-to-a-strong-random-key"}
+AUTH = {"Authorization": "Bearer test-only-key-not-a-secret-0123456789"}
 
 
 @pytest.fixture(autouse=True, scope="module")

@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased] - 2026-09-21
 
+### Security
+- The service refuses to start, and refuses every authenticated request with 503, when `PW_REDACT_API_KEY` is unset, empty, or still the `.env.example` placeholder. Previously the key defaulted to that public placeholder, so an unconfigured deployment accepted it.
+
+### Fixed
+- The landing page license tag said "Apache 2.0"; the project is MIT.
+
 ### Changed
 - Repository agent instructions now live in `AGENTS.md`, and root `CLAUDE.md` was removed after its still-current facts moved.
 

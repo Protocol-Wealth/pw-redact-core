@@ -16,6 +16,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
 from . import __version__
 from .auth import verify_api_key
+from .config import api_key_problem, settings
 from .models.requests import DetectRequest, RedactRequest, RehydrateRequest
 from .redactor.engine import PWRedactor
 from .rehydrator.engine import PWRehydrator
@@ -40,6 +41,13 @@ def get_redactor() -> PWRedactor:
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     global _redactor, _rate_limiter
+    # Refuse to start rather than serve with a key that is missing or public.
+    problem = api_key_problem(settings.pw_redact_api_key)
+    if problem:
+        raise RuntimeError(
+            f"{problem}. Set it to a strong random value, for example: "
+            'python3 -c "import secrets; print(secrets.token_urlsafe(48))"'
+        )
     _redactor = PWRedactor()
     _rate_limiter = RateLimiter()
     yield
@@ -131,7 +139,7 @@ async def landing_page() -> HTMLResponse:
 
   <p>
     <span class="tag">v{__version__}</span>
-    <span class="tag">Apache 2.0</span>
+    <span class="tag">MIT</span>
     <span class="tag">Python 3.12+</span>
     <span class="tag">Stateless</span>
   </p>
