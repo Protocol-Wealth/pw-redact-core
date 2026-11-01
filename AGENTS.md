@@ -94,6 +94,7 @@ values. Actual `fly.toml` and `.env` are gitignored.
 
 - Template: `fly.toml.example`. Copy to `fly.toml` locally; do not commit it.
 - CI: `.github/workflows/ci.yml` runs only on manual dispatch: `ruff check src/`, `ruff format --check src/`, and `pytest tests/` with `--cov=pw_redact --cov-fail-under=85`.
+- Hygiene: `.github/workflows/hygiene.yml` runs on every pull request and push to main: the shared rivendale/opensource hygiene check (executable bits, invisible characters, stale dated markers, `AGENTS.md` size), configured in `.hygiene.json`.
 
 ## Architecture
 

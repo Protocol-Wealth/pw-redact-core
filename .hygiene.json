@@ -1,0 +1,7 @@
+{
+  "_comment": "Schema: rivendale/opensource tools/hygiene/README.md. Keys starting with _ are comments.",
+  "stale_pattern": "\\b(?:checked|rechecked|verified|reviewed|read|as of)[:\\s]+(?:on\\s+)?(\\d{4}-\\d{2}-\\d{2})\\b",
+  "stale_globs": ["README.md", "AGENTS.md", "SECURITY.md", "CONTRIBUTING.md", "docs/**/*.md"],
+  "instructions": [{"file": "AGENTS.md", "max_bytes": 32768}],
+  "_root_safety": "Empty: the test suite needs pip installs (presidio, spacy and its model wheel) and the container has no network."
+}

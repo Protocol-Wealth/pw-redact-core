@@ -1,0 +1,20 @@
+name: hygiene
+
+# The shared hygiene check from rivendale/opensource (tools/hygiene/README.md there), configured in
+# .hygiene.json: executable bits, invisible characters, stale dated markers and the AGENTS.md size.
+# No root_safety commands: the tests need pip installs and the container has no network.
+# Unlike ci.yml it runs on every pull request and push to main; it installs nothing.
+# To move to a newer version, change both SHAs in one commit.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  hygiene:
+    uses: rivendale/opensource/.github/workflows/hygiene.yml@bd93f38385536fa29060ca10975522a88183312c
+    with:
+      hygiene_ref: bd93f38385536fa29060ca10975522a88183312c
