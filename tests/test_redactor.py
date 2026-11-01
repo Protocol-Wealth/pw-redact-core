@@ -467,6 +467,8 @@ class TestRothPeople:
             "mr. roth called.",
             "Judge Roth ruled on the trust.",
             "I asked Roth options he prefers.",
+            "We contributed to Roth last year and he thanked us.",
+            "Campaign contributions to Roth were disclosed.",
         ],
     )
     def test_person_redacted(self, redactor: PWRedactor, text):

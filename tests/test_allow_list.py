@@ -253,7 +253,9 @@ class TestIsRothAccount:
             "Convert to Roth before year-end.",
             "Then max out Roth.",
             "We can max out the Roth this year.",
-            "Contribute to a Roth early.",
+            "Contribute to a Roth IRA early.",
+            "Know the Roth contribution limits.",
+            "Max out Roth.",
             "Roth vs traditional",
             "Roth versus traditional accounts",
             "mega backdoor Roth",
@@ -269,6 +271,9 @@ class TestIsRothAccount:
             "We met the Roth children.",
             "Send the Roth estate documents.",
             "I asked Roth options he prefers.",  # ambiguous: redact
+            "We contributed to Roth last year and he thanked us.",
+            "Campaign contributions to Roth were disclosed.",
+            "Contribute to a Roth early.",  # no account word after: redact
             "their Roth is open",  # possessive alone: redact
         ],
     )

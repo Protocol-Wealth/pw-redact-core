@@ -113,14 +113,18 @@ ALLOW_TERMS: list[str] = [
 # "Roth" as a retirement product. Product context is a product word right after
 # ("Roth IRA", "Roth conversion", "Roth vs traditional") or a planning verb or
 # "backdoor" right before ("convert to Roth", "max out the Roth", "backdoor
-# Roth"). An article or possessive alone is not product context: "the Roth
-# family", "the Roth estate documents" are people. When in doubt the detection
-# is kept, i.e. "Roth" is redacted: "I asked Roth options he prefers" could be
-# either, so "options" is deliberately not a product word.
+# Roth"). "contribute(d) to" is not product context on its own: "we contributed
+# to Roth last year" and "campaign contributions to Roth" are people. With an
+# account word after it ("contribute to a Roth IRA", "Roth contribution
+# limits") the product word already decides. An article or possessive alone
+# is not product context: "the Roth family", "the Roth estate documents" are
+# people. When in doubt the detection is kept, i.e. "Roth" is redacted: "I
+# asked Roth options he prefers" could be either, so "options" is deliberately
+# not a product word.
 _ROTH_WORD = re.compile(r"(?i)roth")
 _ROTH_PRODUCT_AFTER = re.compile(
     r"(?i)\s*+(?:IRA|401\(?k\)?|403\(?b\)?|457\(?b\)?|TSP|conversions?|"
-    r"contributions?|accounts?|ladder|strategy|rollovers?|elections?|"
+    r"contributions?|accounts?|ladder|strategy|rollovers?|elections?|limits?|"
     r"deferrals?|assets|balances?|money|funds?|dollars|savings|recharacterization|"
     r"(?:vs\.?|versus|or)\s++(?:a\s++)?traditional)\b"
 )
@@ -130,7 +134,6 @@ _ROTH_PRODUCT_BEFORE = re.compile(
     r"(?:mega\s++)?backdoor"
     r"|conver(?:t|ts|ted|ting|sion)\s++(?:it\s++|them\s++)?(?:to|into)"
     r"|max(?:es|ed|ing)?\s++(?:it\s++)?out"
-    r"|contribut(?:e|es|ed|ing|ions?)\s++to"
     r")\s++(?:" + _DETERMINER + r")?$"
 )
 # An honorific or title right before "Roth" means a person, whatever follows.

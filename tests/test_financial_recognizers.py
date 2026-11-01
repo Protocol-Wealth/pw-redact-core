@@ -119,3 +119,41 @@ class TestPolicyNumberBounds:
     def test_keyword_inside_upper_word_not_detected(self):
         rec = _get_recognizer("POLICY_NUMBER")
         assert rec.analyze("PLANPLAN 1234567", ["POLICY_NUMBER"]) == []
+
+
+class TestPolicyNumberFullRun:
+    @pytest.mark.parametrize("length", [64, 65, 70, 500])
+    def test_whole_value_covered(self, length):
+        value = "1" * length
+        text = f"Policy {value} on file"
+        rec = _get_recognizer("POLICY_NUMBER")
+        spans = [(r.start, r.end) for r in rec.analyze(text, ["POLICY_NUMBER"])]
+        assert spans == [(0, len("Policy ") + length)]
+
+    def test_quarter_is_not_a_policy_number(self):
+        rec = _get_recognizer("POLICY_NUMBER")
+        assert rec.analyze("The contract 2025Q1 renewal", ["POLICY_NUMBER"]) == []
+        assert rec.analyze("plan: 2025q4", ["POLICY_NUMBER"]) == []
+
+    def test_quarter_prefix_of_longer_id_still_detected(self):
+        rec = _get_recognizer("POLICY_NUMBER")
+        assert rec.analyze("contract 2025Q1A77", ["POLICY_NUMBER"])
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Plan" * 25_000 + "1",
+            "PLAN" * 25_000,
+            "policy " + "A" * 100_000,
+            "policy " + "1" * 100_000,
+            ("policy " + "A" * 70 + " ") * 1_300,
+        ],
+        ids=["camel-repeat", "upper-repeat", "no-digit-run", "digit-run", "many-no-digit"],
+    )
+    def test_100kb_inputs_are_fast(self, text):
+        import time
+
+        rec = _get_recognizer("POLICY_NUMBER")
+        start = time.perf_counter()
+        rec.analyze(text, ["POLICY_NUMBER"])
+        assert time.perf_counter() - start < 1.0
