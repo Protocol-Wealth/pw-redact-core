@@ -94,7 +94,7 @@ Mortgage/RE: LTV, DTI, PMI, PITI, MIP, UFMIP, ARM, FRM, HELOC, HEL, TILA, RESPA,
 
 General: FICO, CUSIP, ISIN, ETF, NAV, AUM, EBITDA, P/E, EPS, ROI, ROE, CROIC, FHA, HUD, HOA, APR, MERS, MLS, Fannie Mae, Freddie Mac, Ginnie Mae
 
-"Roth" is handled by context, not as a literal term, because it is also a surname: `is_roth_account()` keeps "Roth IRA", "Roth 401(k)", "a Roth conversion" and "backdoor Roth", while "Mr. Roth" is still redacted.
+"Roth" is handled by context, not as a literal term, because it is also a surname: `is_roth_account()` keeps "Roth" only with a product word after it ("Roth IRA", "Roth 401(k)", "Roth conversion", "Roth vs traditional") or a planning phrase before it ("backdoor Roth", "convert to Roth", "max out the Roth", "contribute to a Roth"). An article or possessive alone is not enough ("the Roth family" is redacted), a title before it always means a person ("Mr. Roth", "Judge Roth", "Grandma Roth", any case), and an ambiguous case such as "I asked Roth options he prefers" is redacted.
 
 ## Adding New Patterns
 

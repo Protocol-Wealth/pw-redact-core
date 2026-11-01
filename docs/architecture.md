@@ -42,6 +42,11 @@ Layers run in sequence; earlier layers have higher confidence and lower latency.
                     Higher score names the type
                     Regex wins ties
                              |
+                [ Repeated Occurrences ]
+                Every other copy of a detected value
+                (any case, look-alike separators,
+                whitespace runs) gets the same type
+                             |
                    [ Placeholder Generation ]
                    Consistent per-document mapping
                    Same text -> same placeholder
@@ -105,9 +110,11 @@ Two mechanisms work together:
 2. **Literal terms** — passed to Presidio's `allow_list` parameter to prevent
    NLP detection of financial acronyms (AGI, RMD, LTV, etc.) as person names.
 3. **Context rule for "Roth"** — `is_roth_account()` drops an NLP detection of
-   "Roth" only when it is the account ("Roth IRA", "Roth 401(k)", "a Roth
-   conversion", "backdoor Roth"). "Roth" is not a literal term, because it is
-   also a surname: "Mr. Roth" stays redacted.
+   "Roth" only when it is the account: a product word after it ("Roth IRA",
+   "Roth conversion") or a planning phrase before it ("backdoor Roth",
+   "convert to Roth"). "Roth" is not a literal term, because it is also a
+   surname: "Mr. Roth" and "the Roth family" stay redacted. See
+   allow-list-guide.md.
 
 The allow-list runs on each detection before the merge, so an allow-listed span
 cannot absorb or suppress a real PII detection that overlaps it.

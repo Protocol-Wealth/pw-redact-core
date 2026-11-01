@@ -101,3 +101,21 @@ class TestPolicyNumberNoOverRedaction:
         rec = _get_recognizer("POLICY_NUMBER")
         results = rec.analyze("contract # VA2025000123", ["POLICY_NUMBER"])
         assert any(r.entity_type == "POLICY_NUMBER" for r in results)
+
+
+class TestPolicyNumberBounds:
+    def test_long_number_fully_covered(self):
+        # With a trailing \b and a 20-character bound this was missed entirely.
+        text = "Policy: 123456789012345678901"
+        rec = _get_recognizer("POLICY_NUMBER")
+        spans = [text[r.start : r.end] for r in rec.analyze(text, ["POLICY_NUMBER"])]
+        assert spans == [text]
+
+    @pytest.mark.parametrize("text", ["MyPlan 1234567", "group_policy: AB123456"])
+    def test_keyword_after_camel_case_or_underscore(self, text):
+        rec = _get_recognizer("POLICY_NUMBER")
+        assert rec.analyze(text, ["POLICY_NUMBER"])
+
+    def test_keyword_inside_upper_word_not_detected(self):
+        rec = _get_recognizer("POLICY_NUMBER")
+        assert rec.analyze("PLANPLAN 1234567", ["POLICY_NUMBER"]) == []

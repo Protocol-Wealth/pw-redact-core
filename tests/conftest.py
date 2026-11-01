@@ -59,3 +59,13 @@ def sample_meeting_notes() -> str:
 @pytest.fixture()
 def sample_mortgage_notes() -> str:
     return (FIXTURES_DIR / "sample_mortgage_notes.txt").read_text()
+
+
+@pytest.fixture(autouse=True)
+def _reset_auth_failure_limiter():
+    """Each test starts with a fresh failed-auth budget for the test client IP."""
+    from pw_redact.auth import auth_failure_limiter
+
+    auth_failure_limiter._buckets.clear()
+    yield
+    auth_failure_limiter._buckets.clear()

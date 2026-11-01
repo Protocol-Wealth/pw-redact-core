@@ -250,7 +250,7 @@ format, a non-string value, an original over 1,000 characters) is answered with
 
 ### POST /v1/detect
 
-Detect PII locations without redacting. Returns entity positions, types, and confidence scores. Useful for UI highlighting. Input validation is the same as for `/v1/redact`: oversized input is refused with 413, and detection runs on the sanitized text, so offsets match the `/v1/redact` manifest. When `security.input_sanitized` is true, offsets refer to that sanitized text.
+Detect PII locations without redacting. Returns entity positions, types, and confidence scores. Useful for UI highlighting. Input validation is the same as for `/v1/redact`: oversized input is refused with 413, and detection runs on the sanitized text, so offsets match the `/v1/redact` manifest. **Offsets refer to the sanitized text**, not the raw request text: when `security.input_sanitized` is true (HTML stripped, control characters removed, ...), `start`/`end` index into the text after sanitization. Previously `/v1/detect` skipped sanitization and its offsets indexed the raw text. Every occurrence of a detected value is reported, including copies in another case or with look-alike separators.
 
 **Request:**
 ```json
@@ -379,7 +379,8 @@ For vulnerability reports, see [SECURITY.md](SECURITY.md).
 - Injection data included in the `/v1/redact` and `/v1/detect` response `security` key
 
 ### Output Validation
-- Verifies no original PII values leaked into `sanitized_text`
+- Verifies no original PII values leaked into `sanitized_text`. The comparison ignores case, look-alike dashes and spaces, invisible characters and whitespace runs, so "JOHN SMITH" counts as a leak of "John Smith". The engine already replaces every such occurrence of a detected value (5+ characters), so this is the backstop.
+- Warnings are fixed codes (`pii_leak:US_SSN`, `invalid_placeholder_format`) and never quote input text
 - Validates all placeholders match the `<TYPE_N>` format
 - Checks manifest structural integrity
 - **Fails closed** — on a leak, a malformed manifest, or an error in the check itself, `/v1/redact` answers 500 and returns neither `sanitized_text` nor `manifest`. A placeholder-format warning alone stays advisory (caller text can contain `<...>`).
@@ -388,6 +389,7 @@ For vulnerability reports, see [SECURITY.md](SECURITY.md).
 - In-memory token bucket per API key, shared by every authenticated route (`/v1/redact`, `/v1/detect`, `/v1/rehydrate`)
 - Default: 60 requests/minute, 10 requests/second burst
 - Returns 429 with `Retry-After` header when exceeded
+- Failed authentication (401/403) has its own small budget per client IP (5 burst, 10/minute); past it, failed attempts get 429. A correct key is never refused by this budget, so one consumer with a stale key behind a shared proxy cannot lock out the others. Behind a proxy, run uvicorn with `--forwarded-allow-ips` so the client IP is the caller's.
 - Configurable via `RATE_LIMIT_RPM` and `RATE_LIMIT_BURST` env vars
 
 ### Request Tracing

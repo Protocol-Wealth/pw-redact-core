@@ -22,6 +22,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SPACY_MODEL_WHEEL: en_core_web_lg-3.8.0-py3-none-any.whl
+      # sha256 of the release asset above (400658291 bytes). Checked on every
+      # run, cached or not, before pip installs it.
+      SPACY_MODEL_SHA256: 293e9547a655b25499198ab15a525b05b9407a75f10255e405e8c3854329ab63
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -46,6 +49,9 @@ jobs:
           mkdir -p ~/.cache/spacy-wheels
           curl -fsSL --retry 3 -o ~/.cache/spacy-wheels/$SPACY_MODEL_WHEEL \
             "https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/$SPACY_MODEL_WHEEL"
+
+      - name: Verify spaCy model wheel
+        run: echo "$SPACY_MODEL_SHA256  $HOME/.cache/spacy-wheels/$SPACY_MODEL_WHEEL" | sha256sum -c -
 
       - name: Install dependencies
         run: |

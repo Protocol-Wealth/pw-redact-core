@@ -701,3 +701,29 @@ class TestKeywordPatternsNoOverRedaction:
     )
     def test_identifiers_with_digits_still_detected(self, text, entity_type, value):
         assert _texts(text, entity_type) == [value]
+
+
+class TestKeywordStart:
+    """The keyword may follow "_", a digit or start a camelCase part, but not
+    sit inside a lowercase word."""
+
+    @pytest.mark.parametrize(
+        "text,entity_type,value",
+        [
+            ("client_loan: 12345678", "LOAN_NUMBER", "12345678"),
+            ("HomeLoan #12345678", "LOAN_NUMBER", "12345678"),
+            ("2ndMortgage 12345678", "LOAN_NUMBER", "12345678"),
+            ("2Mortgage 12345678", "LOAN_NUMBER", "12345678"),
+            ("HomeTitle 123456A", "FILE_REFERENCE", "123456A"),
+            ("new_listing: AR2025001", "MLS_NUMBER", "AR2025001"),
+            ("county_APN: 123-456-789", "PARCEL_NUMBER", "123-456-789"),
+        ],
+    )
+    def test_detected(self, text, entity_type, value):
+        assert _texts(text, entity_type) == [value]
+
+    @pytest.mark.parametrize(
+        "text", ["denote 12345678", "Denote 12345678", "LOANLOAN 12345678", "subtitle 1234567"]
+    )
+    def test_inside_word_not_detected(self, text):
+        assert not ({"LOAN_NUMBER", "FILE_REFERENCE"} & _types(text))

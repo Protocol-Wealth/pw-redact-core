@@ -611,3 +611,73 @@ class TestSecurityIntegration:
         # Redaction still works on sanitized text
         result = redactor.redact(validation.text, context="general")
         assert "123-45-6789" not in result.sanitized_text
+
+
+# ── Warnings carry codes only, never content ───────────────────────
+
+
+class TestOutputWarningsHaveNoContent:
+    def test_placeholder_format_warning_has_no_text(self):
+        result = validate_output(
+            "Loan <- see ref 12345678, borrower DOB 04/12/1961>",
+            {"version": "1.0", "redaction_id": "r", "placeholders": []},
+        )
+        assert result.warnings == ["invalid_placeholder_format"]
+
+    def test_repeated_format_warnings_deduplicated(self):
+        result = validate_output(
+            "<a b> and <c d>", {"version": "1.0", "redaction_id": "r", "placeholders": []}
+        )
+        assert result.warnings == ["invalid_placeholder_format"]
+
+    def test_unknown_entity_type_not_echoed(self):
+        result = validate_output(
+            "Jane Doe Smith",
+            {"version": "1.0", "redaction_id": "r", "placeholders": [
+                {"placeholder": "<X_1>", "original": "Jane Doe Smith",
+                 "entity_type": "jane doe smith"},
+            ]},
+        )
+        assert result.warnings == ["pii_leak:UNKNOWN"]
+
+
+# ── The leak check matches the same value, not only the same bytes ─
+
+
+def _manifest(original: str, entity_type: str = "LOAN_NUMBER") -> dict:
+    return {
+        "version": "1.0",
+        "redaction_id": "r",
+        "placeholders": [
+            {"placeholder": f"<{entity_type}_1>", "original": original,
+             "entity_type": entity_type},
+        ],
+    }
+
+
+class TestLeakCheckNormalizes:
+    @pytest.mark.parametrize(
+        "text,original",
+        [
+            ("Loan #<LOAN_NUMBER_1> confirmed; ref ab123456 on file.", "AB123456"),
+            ("Loan #<LOAN_NUMBER_1> confirmed; ref AB-123456 on file.", "AB\u2011123456"),
+            ("Loan #<LOAN_NUMBER_1> confirmed; ref AB\u2011123456 on file.", "AB-123456"),
+            ("ref AB12\u200b3456 on file", "AB123456"),
+            ("<PERSON_1> called. Later JOHN SMITH called again.", "John Smith"),
+            ("<PERSON_1> called. Later John   Smith called again.", "John Smith"),
+            ("<PERSON_1> called. Later John\u00a0Smith called again.", "John Smith"),
+        ],
+    )
+    def test_variant_is_a_leak(self, text, original):
+        result = validate_output(text, _manifest(original))
+        assert not result.safe_to_return
+        assert result.warnings == ["pii_leak:LOAN_NUMBER"]
+
+    def test_own_placeholders_are_not_leaks(self):
+        # The original "number" must not be found inside "<LOAN_NUMBER_1>".
+        result = validate_output("Loan #<LOAN_NUMBER_1>.", _manifest("number"))
+        assert result.safe_to_return
+
+    def test_substring_of_longer_word_still_not_a_leak(self):
+        result = validate_output("The BLACKSMITH <PERSON_1>.", _manifest("Smith", "PERSON"))
+        assert result.safe_to_return

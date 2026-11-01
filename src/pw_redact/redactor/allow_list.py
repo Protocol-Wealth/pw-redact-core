@@ -110,26 +110,42 @@ ALLOW_TERMS: list[str] = [
 ]
 
 
-# "Roth" as a retirement product: followed by an account type or a planning word,
-# or preceded by an article, possessive or "backdoor".
+# "Roth" as a retirement product. Product context is a product word right after
+# ("Roth IRA", "Roth conversion", "Roth vs traditional") or a planning verb or
+# "backdoor" right before ("convert to Roth", "max out the Roth", "backdoor
+# Roth"). An article or possessive alone is not product context: "the Roth
+# family", "the Roth estate documents" are people. When in doubt the detection
+# is kept, i.e. "Roth" is redacted: "I asked Roth options he prefers" could be
+# either, so "options" is deliberately not a product word.
 _ROTH_WORD = re.compile(r"(?i)roth")
 _ROTH_PRODUCT_AFTER = re.compile(
     r"(?i)\s*+(?:IRA|401\(?k\)?|403\(?b\)?|457\(?b\)?|TSP|conversions?|"
-    r"contributions?|accounts?|ladder|strategy|rollovers?|options?|elections?|"
-    r"deferrals?|assets|balances?|money|funds?|dollars|savings|recharacterization)\b"
+    r"contributions?|accounts?|ladder|strategy|rollovers?|elections?|"
+    r"deferrals?|assets|balances?|money|funds?|dollars|savings|recharacterization|"
+    r"(?:vs\.?|versus|or)\s++(?:a\s++)?traditional)\b"
 )
+_DETERMINER = r"(?:a|an|the|my|your|his|her|their|our)\s++"
 _ROTH_PRODUCT_BEFORE = re.compile(
-    r"(?i)\b(?:a|an|the|backdoor|mega|my|your|his|her|their|our)\s++$"
+    r"(?i)\b(?:"
+    r"(?:mega\s++)?backdoor"
+    r"|conver(?:t|ts|ted|ting|sion)\s++(?:it\s++|them\s++)?(?:to|into)"
+    r"|max(?:es|ed|ing)?\s++(?:it\s++)?out"
+    r"|contribut(?:e|es|ed|ing|ions?)\s++to"
+    r")\s++(?:" + _DETERMINER + r")?$"
 )
-# An honorific right before "Roth" means a person, whatever follows.
-_ROTH_PERSON_BEFORE = re.compile(r"\b(?:Mr|Mrs|Ms|Mx|Miss|Dr|Prof)\.?\s++$")
+# An honorific or title right before "Roth" means a person, whatever follows.
+_ROTH_PERSON_BEFORE = re.compile(
+    r"(?i)\b(?:Mr|Mrs|Ms|Mx|Miss|Dr|Prof|Professor|Judge|Sen|Senator|Rep|Rev|Rabbi|"
+    r"Officer|Grandpa|Grandma)\.?\s++$"
+)
 
 
 def is_roth_account(text: str, start: int, end: int) -> bool:
     """True if ``text[start:end]`` is "Roth" used as a retirement product.
 
-    "Roth IRA", "Roth 401(k)", "a Roth conversion" and "backdoor Roth" are the
-    product; "Mr. Roth" is a person and must stay detected. ("Jane Roth" never
+    "Roth IRA", "Roth 401(k)", "a Roth conversion", "backdoor Roth" and
+    "convert to Roth" are the product; "Mr. Roth", "Judge Roth" and "the Roth
+    family" are people and stay detected. ("Jane Roth" never
     reaches this check: the detection is the whole name, not "Roth".)
     A span longer than the word itself (e.g. Presidio's "Roth IRA") is the
     product if it is "Roth" plus a product word.

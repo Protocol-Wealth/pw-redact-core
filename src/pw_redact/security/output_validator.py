@@ -9,12 +9,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from ..redactor.occurrences import MIN_MATCH_LENGTH, find_occurrences, fold
+
 # Valid placeholder format: <TYPE_N> where TYPE is uppercase/underscore, N is digits
 _VALID_PLACEHOLDER = re.compile(r"<[A-Z][A-Z_]*_\d+>")
 
-# Minimum original length to check for leaks (avoids false positives on short
-# strings like "Mr", "Dr", "TX" that appear naturally in text)
-_MIN_LEAK_CHECK_LENGTH = 5
+# An entity type is echoed in a warning only if it looks like one of ours, so a
+# warning never carries caller content.
+_ENTITY_TYPE = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
 
 
 @dataclass
@@ -25,23 +27,14 @@ class OutputValidationResult:
     the output must be withheld: an original value is still in the text, the
     manifest is malformed, or the check itself failed. A placeholder-format
     warning alone stays advisory, since caller text may contain ``<...>``.
+
+    Warnings are fixed codes (``pii_leak:US_SSN``, ``invalid_placeholder_format``).
+    They never contain text from the input or the manifest originals.
     """
 
     is_valid: bool = True
     warnings: list[str] = field(default_factory=list)
     safe_to_return: bool = True
-
-
-def _leak_pattern(original: str) -> str:
-    """Match ``original`` as a whole token.
-
-    The word-boundary guards apply only at ends that are word characters, so a
-    value starting or ending with punctuation, like "(212) 555-0199", is still
-    found ("\b(" never matches after a space).
-    """
-    prefix = r"(?<!\w)" if re.match(r"\w", original[0]) else ""
-    suffix = r"(?!\w)" if re.match(r"\w", original[-1]) else ""
-    return prefix + re.escape(original) + suffix
 
 
 def validate_output(
@@ -88,7 +81,15 @@ def _validate_output(sanitized_text: str, manifest: dict) -> OutputValidationRes
         warnings.append("manifest_placeholders_not_list")
         return OutputValidationResult(is_valid=False, warnings=warnings, safe_to_return=False)
 
-    # Check no original values leaked into sanitized text
+    # Look for originals in the text with its own placeholders blanked out, so
+    # "<PERSON_1>" itself never counts as an occurrence of "person".
+    masked = _VALID_PLACEHOLDER.sub(lambda m: " " * len(m.group()), sanitized_text)
+    folded = fold(masked)
+
+    # Check no original values leaked into sanitized text. The comparison
+    # ignores case, look-alike dashes and spaces, invisible characters and
+    # whitespace runs (see redactor/occurrences.py), so "JOHN SMITH" or
+    # "ab123456" counts as a leak of "John Smith" or "AB123456".
     for i, entry in enumerate(placeholders):
         if not isinstance(entry, dict):
             warnings.append(f"manifest_entry_{i}_not_dict")
@@ -99,20 +100,23 @@ def _validate_output(sanitized_text: str, manifest: dict) -> OutputValidationRes
         entity_type = entry.get("entity_type", "UNKNOWN")
         if not isinstance(original, str):
             raise TypeError(f"manifest entry {i} original is not a string")
+        if not isinstance(entity_type, str) or not _ENTITY_TYPE.fullmatch(entity_type):
+            entity_type = "UNKNOWN"
 
-        # Only check strings long enough to be meaningful
-        if len(original) >= _MIN_LEAK_CHECK_LENGTH:
-            # Word-boundary-aware search to reduce false positives
-            # (e.g. "Smith" in "Blacksmith" should not flag)
-            if re.search(_leak_pattern(original), sanitized_text):
+        # Only check values long enough to be meaningful
+        if len(fold(original)[0].strip(" ")) >= MIN_MATCH_LENGTH:
+            if find_occurrences(original, masked, folded):
                 warnings.append(f"pii_leak:{entity_type}")
                 unsafe = True
 
-    # Check all placeholders in text match valid format
-    found_placeholders = re.findall(r"<[^>]+>", sanitized_text)
-    for ph in found_placeholders:
+    # Check all placeholders in text match valid format. The code carries no
+    # text: the "<...>" found is caller content and may hold PII.
+    for ph in re.findall(r"<[^>]+>", sanitized_text):
         if not _VALID_PLACEHOLDER.fullmatch(ph):
-            warnings.append(f"invalid_placeholder_format:{ph}")
+            warnings.append("invalid_placeholder_format")
+
+    # One entry per code
+    warnings = list(dict.fromkeys(warnings))
 
     return OutputValidationResult(
         is_valid=len(warnings) == 0,

@@ -136,3 +136,26 @@ async def test_landing_page_states_the_mit_license():
         resp = await c.get("/")
     assert ">MIT<" in resp.text
     assert "Apache" not in resp.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("configured", ["KEY\n", "  KEY  ", "\tKEY\r\n"])
+async def test_configured_key_is_compared_stripped(configured):
+    """api_key_problem() judges the stripped key, so verification uses it too.
+
+    A key read from a file usually ends in a newline; before, it passed the
+    startup check but no bearer could ever match it.
+    """
+    real = "x9Q2-strong-random-value-for-tests"
+    previous = settings.pw_redact_api_key
+    settings.pw_redact_api_key = configured.replace("KEY", real)
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            ok = await c.post("/v1/detect", json=BODY, headers={"Authorization": f"Bearer {real}"})
+            padded = await c.post(
+                "/v1/detect", json=BODY, headers={"Authorization": f"Bearer {real} "}
+            )
+    finally:
+        settings.pw_redact_api_key = previous
+    assert ok.status_code == 200
+    assert padded.status_code == 403

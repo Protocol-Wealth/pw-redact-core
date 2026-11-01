@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 from .allow_list import compile_allow_patterns, get_allow_terms, is_roth_account
 from .manifest import PlaceholderEntry, RedactionManifest
+from .occurrences import MIN_MATCH_LENGTH, find_occurrences, fold
 from .presidio_config import create_analyzer
 from .regex_patterns import DetectedEntity, detect_regex
 from .unicode_canon import canonicalize, to_original_span
@@ -249,7 +250,38 @@ class PWRedactor:
                     text=text[start:end],
                 )
             )
-        return mapped
+        return _add_repeated_occurrences(mapped, text)
+
+
+def _add_repeated_occurrences(entities: list[DetectedEntity], text: str) -> list[DetectedEntity]:
+    """Cover every other occurrence of each detected value.
+
+    A detector can catch "John Smith" once and miss "JOHN SMITH" later, or
+    catch "AB123456" and miss "ab123456" or a copy with a non-breaking hyphen.
+    Each such occurrence (same value after canonicalization, case folding and
+    whitespace collapsing; see occurrences.py) becomes an entity of the same
+    type, and overlaps are merged into their union as usual. Values shorter
+    than MIN_MATCH_LENGTH are not propagated.
+    """
+    if not entities:
+        return entities
+    folded = fold(text)
+    covered = {(e.start, e.end) for e in entities}
+    extra: list[DetectedEntity] = []
+    seen: set[str] = set()
+    for e in sorted(entities, key=lambda e: -e.score):
+        key = fold(e.text)[0].strip(" ")
+        if len(key) < MIN_MATCH_LENGTH or key in seen:
+            continue
+        seen.add(key)
+        for start, end in find_occurrences(e.text, text, folded):
+            if (start, end) not in covered:
+                covered.add((start, end))
+                extra.append(DetectedEntity(e.entity_type, start, end, e.score, text[start:end]))
+    if not extra:
+        return entities
+    # Detected entities first (source 0) so they keep their type on ties.
+    return _merge_entities(entities, extra, text)
 
 
 def _merge_entities(

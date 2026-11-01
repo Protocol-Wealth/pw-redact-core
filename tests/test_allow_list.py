@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from pw_redact.redactor.allow_list import compile_allow_patterns, get_allow_terms
 
 
@@ -225,6 +227,7 @@ class TestAllowTerms:
 
 
 class TestIsRothAccount:
+    # Product sense needs a product word after or a planning verb before.
     @staticmethod
     def _check(text: str, word: str = "Roth") -> bool:
         from pw_redact.redactor.allow_list import is_roth_account
@@ -243,6 +246,42 @@ class TestIsRothAccount:
 
     def test_backdoor_roth(self):
         assert self._check("Explore backdoor Roth.")
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Convert to Roth before year-end.",
+            "Then max out Roth.",
+            "We can max out the Roth this year.",
+            "Contribute to a Roth early.",
+            "Roth vs traditional",
+            "Roth versus traditional accounts",
+            "mega backdoor Roth",
+        ],
+    )
+    def test_planning_context_is_product(self, text):
+        assert self._check(text)
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "The Roth family met with us.",
+            "We met the Roth children.",
+            "Send the Roth estate documents.",
+            "I asked Roth options he prefers.",  # ambiguous: redact
+            "their Roth is open",  # possessive alone: redact
+        ],
+    )
+    def test_article_or_possessive_alone_is_person(self, text):
+        assert not self._check(text)
+
+    @pytest.mark.parametrize(
+        "prefix",
+        ["mr.", "MRS", "Judge", "Sen.", "Senator", "Rep.", "Rev.", "Rabbi", "Officer",
+         "Professor", "Prof.", "Grandpa", "Grandma"],
+    )
+    def test_titles_mean_person(self, prefix):
+        assert not self._check(f"{prefix} Roth IRA questions")
 
     def test_whole_span_roth_ira(self):
         assert self._check("Fund the Roth IRA.", "Roth IRA")

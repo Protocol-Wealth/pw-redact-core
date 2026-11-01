@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from presidio_analyzer import Pattern, PatternRecognizer
 
+from .regex_patterns import KEYWORD_START
+
 
 def get_financial_recognizers() -> list[PatternRecognizer]:
     """Return custom recognizers for financial advisory context."""
@@ -49,8 +51,11 @@ def get_financial_recognizers() -> list[PatternRecognizer]:
             Pattern(
                 "policy",
                 # The value must contain a digit, so "plan contributions" or
-                # "contract renewal" is not taken for a policy number.
-                r"(?i)\b(?:policy|plan|contract)[\s#:]*((?=[A-Z0-9]{0,19}\d)[A-Z0-9]{6,20})\b",
+                # "contract renewal" is not taken for a policy number. No
+                # trailing \b: with one, a value longer than the bound was
+                # missed entirely. The bound (64) keeps the scan linear.
+                r"(?i)" + KEYWORD_START + r"(?:policy|plan|contract)[\s#:]*"
+                r"((?=[A-Z0-9]{0,63}\d)[A-Z0-9]{6,64})",
                 0.6,
             ),
         ],

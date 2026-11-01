@@ -474,3 +474,75 @@ async def test_redact_placeholder_format_warning_stays_advisory(transport):
         )
     assert resp.status_code == 200
     assert resp.json()["security"]["output_valid"] is False
+
+
+@pytest.mark.asyncio
+async def test_withheld_response_does_not_echo_the_leaked_value(transport, monkeypatch):
+    """The 500 carries warning codes only; it used to quote the raw "<...>" text."""
+    from pw_redact.redactor import engine
+
+    # Disable the engine's repeat replacement so the second "12345678" stays
+    # in the text and the leak check must withhold the response.
+    monkeypatch.setattr(engine, "_add_repeated_occurrences", lambda entities, text: entities)
+    text = "Loan #12345678 confirmed. <- see ref 12345678, borrower DOB 04/12/1961>"
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        resp = await c.post(
+            "/v1/redact", json={"text": text, "context": "mortgage"}, headers=VALID_AUTH
+        )
+    assert resp.status_code == 500
+    assert "12345678" not in resp.text
+    assert "1961" not in resp.text
+    assert "see ref" not in resp.text
+    assert set(resp.json()["output_warnings"]) == {
+        "pii_leak:LOAN_NUMBER",
+        "invalid_placeholder_format",
+    }
+
+
+@pytest.mark.asyncio
+async def test_repeated_value_replaced_instead_of_withheld(transport):
+    text = "Loan #12345678 confirmed. <- see ref 12345678, borrower DOB 04/12/1961>"
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        resp = await c.post(
+            "/v1/redact", json={"text": text, "context": "mortgage"}, headers=VALID_AUTH
+        )
+    assert resp.status_code == 200
+    assert "12345678" not in resp.json()["sanitized_text"]
+    assert resp.json()["security"]["output_warnings"] == ["invalid_placeholder_format"]
+
+
+# ── Failed authentication is rate limited per client IP ───────────
+
+
+@pytest.mark.asyncio
+async def test_failed_auth_limited_per_ip(transport):
+    from pw_redact.auth import AUTH_FAILURE_BURST
+
+    bad = {"Authorization": "Bearer " + "x" * 40}
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        codes = [
+            (await c.post("/v1/detect", json={"text": "hi"}, headers=bad)).status_code
+            for _ in range(AUTH_FAILURE_BURST + 2)
+        ]
+        limited = await c.post("/v1/detect", json={"text": "hi"}, headers=bad)
+        malformed = await c.post(
+            "/v1/detect", json={"text": "hi"}, headers={"Authorization": "Token x"}
+        )
+        good = await c.post("/v1/detect", json={"text": "hi"}, headers=VALID_AUTH)
+    assert codes[:AUTH_FAILURE_BURST] == [403] * AUTH_FAILURE_BURST
+    assert codes[AUTH_FAILURE_BURST:] == [429, 429]
+    assert "retry-after" in limited.headers
+    assert malformed.status_code == 429
+    # A correct key is never refused by the failed-auth budget.
+    assert good.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_non_ascii_bearer_is_403_not_500(transport):
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        resp = await c.post(
+            "/v1/detect",
+            json={"text": "hi"},
+            headers={"Authorization": "Bearer café".encode()},
+        )
+    assert resp.status_code == 403
