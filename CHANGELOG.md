@@ -32,6 +32,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 - Repository agent instructions now live in `AGENTS.md`, and root `CLAUDE.md` was removed after its still-current facts moved.
+- `AGENTS.md`: this file and the existing code govern; standards from outside the repository no longer override them, and documentation-vs-code conflicts follow the code and are reported.
 
 ## [0.1.0] - 2026-03-29
 
