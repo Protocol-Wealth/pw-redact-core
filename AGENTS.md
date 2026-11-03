@@ -23,7 +23,7 @@ Regex runs before NLP. Authentication is a service-to-service API key
 
 **Stack:** Python 3.12 · FastAPI · Presidio · spaCy · Fly.io
 **License:** MIT
-**Status:** discontinued reference implementation (replaced by the pw-os PII guard); nothing deploys it, and CI runs only on manual dispatch.
+**Status:** discontinued reference implementation (replaced by [`@protocolwealthos/pii-guard`](https://www.npmjs.com/package/@protocolwealthos/pii-guard) in [pwos-core](https://github.com/Protocol-Wealth/pwos-core), `packages/pii-guard`); nothing deploys it, and CI runs only on manual dispatch.
 
 ## Key Files
 

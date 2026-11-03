@@ -1,10 +1,13 @@
+> [!WARNING]
+> **Discontinued.** This repository is no longer maintained. Use the TypeScript package [`@protocolwealthos/pii-guard`](https://www.npmjs.com/package/@protocolwealthos/pii-guard) in [pwos-core](https://github.com/Protocol-Wealth/pwos-core) (`packages/pii-guard`) instead. Open issue [#3](https://github.com/Protocol-Wealth/pw-redact-core/issues/3) (overlapping detections can drop the longer span) is tracked in [pwos-core #125](https://github.com/Protocol-Wealth/pwos-core/issues/125).
+
 # pw-redact-core
 
 **Open-source PII redaction engine for financial services AI pipelines.**
 
 The repository is named `pw-redact-core`; the Python package and API retain the `pw-redact` name.
 
-**Project status:** This repository is a reference implementation. Its [CI workflow](.github/workflows/ci.yml) is manual-only and identifies the project as discontinued in favor of the pw-os PII guard. The examples below describe this codebase; they do not indicate an active deployment.
+**Project status:** Discontinued reference implementation. Its [CI workflow](.github/workflows/ci.yml) is manual-only. New work belongs in [`@protocolwealthos/pii-guard`](https://www.npmjs.com/package/@protocolwealthos/pii-guard). The examples below describe this codebase; they do not indicate an active deployment.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)

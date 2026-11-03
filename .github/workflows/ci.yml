@@ -1,7 +1,7 @@
 name: CI
 
 on:
-  workflow_dispatch:  # Manual only — pw-redact is discontinued (replaced by pw-os PII guard)
+  workflow_dispatch:  # Manual only — pw-redact is discontinued (replaced by @protocolwealthos/pii-guard in pwos-core, packages/pii-guard)
 
 jobs:
   lint:

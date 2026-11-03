@@ -177,7 +177,7 @@ class TestJWT:
 
 class TestAPIKey:
     def test_api_key_equals(self):
-        assert "API_KEY" in _types('api_key=sk_live_abcdefghij')
+        assert "API_KEY" in _types("api_key=sk_test_dummy-not-a-secret")
 
     def test_apikey_colon(self):
         assert "API_KEY" in _types('"apikey": "abcdefghijklm"')
@@ -188,7 +188,7 @@ class TestAPIKey:
 
     def test_uppercase_env_var(self):
         # STRIPE_API_KEY — (?i) flag lets regex match "API_KEY" substring
-        assert "API_KEY" in _types("STRIPE_API_KEY=sk_live_abc123def456")
+        assert "API_KEY" in _types("STRIPE_API_KEY=sk_test_dummy-not-a-secret")
 
     def test_prefixed_api_key(self):
         assert "API_KEY" in _types("PW_REDACT_API_KEY=some_long_value_here")
@@ -311,7 +311,7 @@ class TestPassword:
 
 class TestSecretValue:
     def test_secret_equals(self):
-        assert "SECRET_VALUE" in _types("secret=sk_live_abcdefghij")
+        assert "SECRET_VALUE" in _types("secret=sk_test_dummy-not-a-secret")
 
     def test_client_secret(self):
         assert "SECRET_VALUE" in _types('"client_secret": "abcdefghijklm"')
@@ -329,11 +329,11 @@ class TestSecretValue:
         assert "SECRET_VALUE" in _types("SECRET_KEY=my_long_secret_value")
 
     def test_secret_access_key(self):
-        assert "SECRET_VALUE" in _types("secret_access_key=wJalrXUtnFEMI/K7MDENG")
+        assert "SECRET_VALUE" in _types("secret_access_key=DUMMY-not-a-real-access-key")
 
     def test_webhook_secret(self):
         # "secret" appears as substring — regex matches from there
-        assert "SECRET_VALUE" in _types("WEBHOOK_SECRET=whsec_abc123def456")
+        assert "SECRET_VALUE" in _types("WEBHOOK_SECRET=dummy-webhook-not-a-secret")
 
 
 # ── AUTH_TOKEN ────────────────────────────────────────────────────
