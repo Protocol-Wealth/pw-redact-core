@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased] - 2026-09-21
 
+### Changed
+- README opens with a discontinued notice: use `@protocolwealthos/pii-guard` on npm, in [pwos-core](https://github.com/Protocol-Wealth/pwos-core) `packages/pii-guard`. Open issue #3 is tracked in [pwos-core #125](https://github.com/Protocol-Wealth/pwos-core/issues/125).
+- Test fixtures no longer use live-mode key prefixes or the AWS documentation example access-key string. They use test-mode dummies and clearly marked placeholder values. Package version stays `0.1.0`; git tag `v1.0.0` is unchanged.
+
 ### Added
 - CI: `.github/workflows/hygiene.yml` runs the shared hygiene check from rivendale/opensource, pinned by commit, on every pull request and push to main: executable bits, invisible characters in tracked files and paths, stale dated markers in the docs, and the `AGENTS.md` size limit. `.hygiene.json` configures it. It installs nothing, so it runs although `ci.yml` is manual-only.
 
