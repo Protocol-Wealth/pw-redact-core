@@ -99,8 +99,16 @@ For deep architecture details, see [docs/architecture.md](docs/architecture.md).
 
 ### Install
 
+The commands below install from a source checkout. Clone the repository first,
+then choose one environment tool:
+
 ```bash
+git clone https://github.com/Protocol-Wealth/pw-redact.git
+cd pw-redact
+
 # With pip
+python3 -m venv .venv
+. .venv/bin/activate
 pip install -e ".[dev]"
 python -m spacy download en_core_web_lg
 
